@@ -1,0 +1,6 @@
+/sdrfanout
+/test/test_util
+/test/test_dsp
+/test/test_stream
+/test/test_loop
+*.o

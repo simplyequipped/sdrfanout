@@ -2,6 +2,8 @@
 #include "util.h"
 #include <cmath>
 #include <ctime>
+#include <string>
+#include <utility>
 
 SynthCapture::SynthCapture(double rate, double center, std::vector<double> dials,
                            long total, bool paced)

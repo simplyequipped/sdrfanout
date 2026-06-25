@@ -1,7 +1,9 @@
 #include "framer.h"
 #include "sdrf.h"
 #include <unistd.h>
+#include <cstddef>
 #include <cstring>
+#include <utility>
 
 Framer::Framer(int fd, int rate, int frame_samples, double buffer_sec)
     : fd_(fd), rate_(rate), frame_(frame_samples), t_newest_(0), dropped_(0) {

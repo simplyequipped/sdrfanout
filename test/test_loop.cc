@@ -2,10 +2,14 @@
 // files, then validate each file's frames + audio tone.
 #include "synth.h"
 #include "run.h"
+#include "capture.h"
 #include "sdrf.h"
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <vector>
 #include <fcntl.h>
 #include <unistd.h>

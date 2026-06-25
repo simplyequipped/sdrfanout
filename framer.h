@@ -4,6 +4,7 @@
 // frame (drop-not-stall) so a slow/stalled consumer can't back-pressure the shared
 // SDR read and overflow IQ for every channel.
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <vector>

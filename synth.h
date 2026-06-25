@@ -4,6 +4,8 @@
 // runs flat-out and ends after `total` samples (tests).
 #pragma once
 #include "capture.h"
+#include <complex>
+#include <vector>
 
 class SynthCapture : public Capture {
 public:

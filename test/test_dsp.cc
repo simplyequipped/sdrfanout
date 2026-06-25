@@ -3,6 +3,8 @@
 // rejected, and the audio lands at the right frequency.
 #include "dsp.h"
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <complex>
 #include <vector>

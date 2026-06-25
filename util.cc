@@ -2,6 +2,9 @@
 #include "util.h"
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <string>
+#include <vector>
 #include <sys/time.h>
 
 double now() {

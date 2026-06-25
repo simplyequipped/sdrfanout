@@ -6,8 +6,18 @@
 #include <SoapySDR/Formats.hpp>
 #include <SoapySDR/Errors.hpp>
 #include <SoapySDR/Logger.hpp>
+#include <SoapySDR/Constants.h>
+#include <SoapySDR/Errors.h>
+#include <SoapySDR/Formats.h>
+#include <SoapySDR/Logger.h>
+#include <SoapySDR/Types.hpp>
+#include <complex>
+#include <cstddef>
 #include <cstdio>
+#include <exception>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 class SoapyCapture : public Capture {
 public:

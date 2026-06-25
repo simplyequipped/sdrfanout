@@ -1,7 +1,11 @@
 #include "run.h"
+#include "capture.h"
 #include "dsp.h"
 #include "framer.h"
 #include "util.h"
+#include <complex>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <ctime>
 

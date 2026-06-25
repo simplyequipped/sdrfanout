@@ -5,6 +5,8 @@
 #include "framer.h"
 #include "sdrf.h"
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

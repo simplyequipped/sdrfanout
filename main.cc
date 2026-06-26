@@ -12,6 +12,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#ifdef __linux__
+#include <sys/prctl.h>   // PR_SET_PDEATHSIG: avoid being orphoned
+#endif
 
 #define SDRFANOUT_TMPDIR "/tmp/sdrfanout"   // default home for auto-named channel FIFOs
 
@@ -35,6 +38,12 @@ static void usage() {
 }
 
 int main(int argc, char **argv) {
+#ifdef __linux__
+    // If parent exits for any reason, even a hard kill that skips its
+    // teardown, the kernel sends SIGTERM
+    prctl(PR_SET_PDEATHSIG, SIGTERM);
+    if (getppid() == 1) return 0;
+#endif
     CaptureConfig cfg;
     std::vector<std::pair<double, std::string>> chspec;
     const int frame = 1200;  // 0.1 s @ 12 kHz
@@ -90,11 +99,16 @@ int main(int argc, char **argv) {
                 std::snprintf(buf, sizeof buf, SDRFANOUT_TMPDIR "/%ld.fifo", (long)cs.first);
                 path = buf;
                 mkdir(SDRFANOUT_TMPDIR, 0755);           // ignore EEXIST
-                mkfifo(path.c_str(), 0644);              // ignore EEXIST. A real FIFO, not a file
                 std::fprintf(stderr, "sdrfanout: ch %.0f -> %s\n", cs.first, path.c_str());
             }
-            fd = open(path.c_str(), O_RDWR | O_NONBLOCK | O_CREAT, 0644);
+            mkfifo(path.c_str(), 0644);                  // create the FIFO for any path form; ignore EEXIST
+            fd = open(path.c_str(), O_RDWR | O_NONBLOCK);   // no O_CREAT: never silently make a regular file
             if (fd < 0) { perror(path.c_str()); delete cap; return 1; }
+            struct stat st;
+            if (fstat(fd, &st) != 0 || !S_ISFIFO(st.st_mode)) {
+                std::fprintf(stderr, "sdrfanout: %s exists but is not a FIFO\n", path.c_str());
+                delete cap; return 1;
+            }
         }
         chans.push_back({cs.first, fd, 0});
     }

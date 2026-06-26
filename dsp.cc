@@ -35,15 +35,17 @@ static std::vector<float> design_hilbert(int n) {
 }
 
 ChannelChain::ChannelChain(double delta_hz, int fs) {
-    w_ = -2.0 * PI * delta_hz / fs;   // mix the channel down to baseband
-    phase_ = 0.0;
+    double w = -2.0 * PI * delta_hz / fs;   // mix the channel down to baseband
+    rot_ = std::complex<double>(std::cos(w), std::sin(w));
+    osc_ = std::complex<double>(1.0, 0.0);
+    osc_count_ = 0;
 
     D_ = fs / OUT_RATE;               // integer by contract (sdrfanout enforces the rate rule)
     dec_count_ = 0;
     int lp_len = 8 * D_ + 1;          // taps scale with D for a sharp-enough transition near 6 kHz
     if (lp_len > 1023) lp_len = 1023;
     lp_ = design_lowpass(5400.0 / fs, lp_len);
-    lp_hist_.assign(lp_.size(), std::complex<float>(0, 0));
+    lp_hist_.assign(2 * lp_.size(), std::complex<float>(0, 0));  // double-length: see process()
     lp_pos_ = 0;
 
     int hl = 65;
@@ -59,25 +61,28 @@ void ChannelChain::process(const std::complex<float> *iq, size_t n, std::vector<
     const size_t H = hil_.size();
 
     for (size_t k = 0; k < n; k++) {
-        // 1) down-convert by Δf
-        std::complex<float> osc((float)std::cos(phase_), (float)std::sin(phase_));
-        std::complex<float> x = iq[k] * osc;
-        phase_ += w_;
-        if (phase_ < -PI) phase_ += 2 * PI;
-        else if (phase_ > PI) phase_ -= 2 * PI;
+        // 1) down-convert by Δf (recursive phasor; renormalize to hold |osc_| = 1)
+        std::complex<float> x = iq[k] * std::complex<float>((float)osc_.real(),
+                                                            (float)osc_.imag());
+        osc_ *= rot_;
+        if (++osc_count_ >= 512) {
+            osc_count_ = 0;
+            osc_ /= std::abs(osc_);
+        }
 
-        // 2) anti-alias FIR + decimate by D
+        // 2) anti-alias FIR + decimate by D. History is double-length: each sample is
+        //    stored at j and j+L, so the convolution reads L contiguous samples with no
+        //    per-tap modulo (faster, and the inner loop vectorizes cleanly).
         lp_hist_[lp_pos_] = x;
-        lp_pos_ = (lp_pos_ + 1) % L;
+        lp_hist_[lp_pos_ + L] = x;
+        if (++lp_pos_ >= L) lp_pos_ -= L;
         if (++dec_count_ < D_) continue;
         dec_count_ = 0;
 
         std::complex<float> acc(0, 0);
-        size_t idx = lp_pos_;                 // oldest sample (next write slot)
-        for (size_t t = 0; t < L; t++) {      // symmetric LPF: history order is irrelevant
-            acc += lp_hist_[idx] * lp_[t];
-            idx = (idx + 1) % L;
-        }
+        const std::complex<float> *h = &lp_hist_[lp_pos_];   // oldest sample, L contiguous
+        for (size_t t = 0; t < L; t++)        // symmetric LPF: history order is irrelevant
+            acc += h[t] * lp_[t];
         float I = acc.real(), Q = acc.imag();
 
         // 3) USB demod: usb = I(delayed by group delay) − Hilbert{Q}

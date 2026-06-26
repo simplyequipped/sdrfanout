@@ -24,8 +24,12 @@ public:
     void process(const std::complex<float>* iq, size_t n, std::vector<int16_t>& out);
 
 private:
-    // NCO (digital down-conversion)
-    double w_, phase_;
+    // NCO (digital down-conversion): a recursive complex phasor (osc_ *= rot_ per
+    // sample) instead of a per-sample sin/cos. rot_ holds the exact double rotation
+    // e^(-j2pi df/fs), so the frequency is exact (no audio offset vs an ideal LO);
+    // osc_ is renormalized periodically to hold unit magnitude against float drift.
+    std::complex<double> rot_, osc_;
+    int osc_count_;
 
     // decimating low-pass FIR (complex), integer factor D
     int D_, dec_count_;

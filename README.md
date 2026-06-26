@@ -1,6 +1,6 @@
 # sdrfanout
-Fan one SDR out to several offset narrowband upper side band (USB) channels, each as a stamped
-12 kHz sample rate audio stream. Built for feeding multiple decoders (ft8mon, wsprmon, …)
+Fan one SDR out to several offset narrowband channels, each as a stamped 12 kHz
+sample rate audio stream. Built for feeding multiple decoders (ft8mon, wsprmon, etc)
 from a single radio, but the stream format is open. Any consumer can read it.
 
 ## Build
@@ -24,20 +24,23 @@ Unit tests:
 
 ```
 usage: sdrfanout -ch <dial_hz>:<path> [-ch ...] [options]
-  -driver <dev>     SoapySDR device name (ex. hackrf) or 'synth'
-  -gain <db|auto>   default: auto (AGC / device default)
-  -rate <hz|auto>   default: auto (smallest integer x 12k spanning the channels)
-  -center <hz|auto> default: auto (lowest dial minus guard)
-  -guard <hz>       guard band below lowest channel, default: 10000
-  -ppm <n>          frequency correction, default: 0
-  -antenna <name>   Soapy antenna, default: device default
-  -buffer <sec>     per-channel output buffer in seconds, default: 1
-  -ch <dial>[:<path>] channel: dial freq (Hz) + output FIFO, path defaults to
-                    /tmp/sdrfanout/<dial>.fifo, set path to '-' for stdout
+  -driver <dev>           SoapySDR device name (ex. hackrf, rtlsdr, etc) or 'synth'
+  -gain <db|auto>         default: auto (AGC / device default)
+  -rate <hz|auto>         sample rate in Hz, default: auto
+                          auto: smallest multiple of 12k spanning all channels
+  -center <hz|auto|edge>  center frequuency in Hz, default: auto
+                          auto: centered amidst channels, offset from DC by *guard*
+                          edge: *guard* Hz below the lowest channel
+  -guard <hz>             offset around center (DC) and band edges in Hz, default: 10000
+  -ppm <n>                frequency correction, default: 0
+  -antenna <name>         Soapy antenna, default: not set (device default)
+  -buffer <sec>           per-channel output buffer in seconds, default: 1
+  -ch <dial>[:<path>]     channel dial freq (Hz) + output FIFO, path defaults to
+                          /tmp/sdrfanout/<dial>.fifo, set path to '-' for stdout
 ```
 
-Each `-ch` defines one channel: a dial frequency and a FIFO output. The output path is
-optional. With just a dial, sdrfanout creates the FIFO at `/tmp/sdrfanout/<dial>.fifo`
+Each `-ch` defines one channel: a dial frequency and a FIFO output path. The output path
+is optional. With just a dial, sdrfanout creates the FIFO at `/tmp/sdrfanout/<dial>.fifo`
 (deterministic, so a consumer can find it without coordination) and prints the resolved
 path to stderr. Give an explicit `:<path>` to place it elsewhere, or `:-` to write the
 stream to stdout. Two co-located decoders off one radio:

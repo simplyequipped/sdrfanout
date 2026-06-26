@@ -27,8 +27,9 @@ static void usage() {
         "  -driver <dev>     SoapySDR device name (ex. hackrf) or 'synth'\n"
         "  -gain <db|auto>   default: auto (AGC / device default)\n"
         "  -rate <hz|auto>   default: auto (smallest integer x 12k spanning the channels)\n"
-        "  -center <hz|auto> default: auto (lowest dial minus guard)\n"
-        "  -guard <hz>       guard band below lowest channel, default: 10000\n"
+        "  -center <hz|auto|edge> default: auto (LO centered in the channels, off the DC\n"
+        "                    spike). edge = LO just below all channels (one-sided)\n"
+        "  -guard <hz>       channel clearance from the LO and band edges, default: 10000\n"
         "  -ppm <n>          frequency correction, default: 0\n"
         "  -antenna <name>   Soapy antenna, default: device default\n"
         "  -buffer <sec>     per-channel output buffer in seconds, default: 1\n"
@@ -58,7 +59,12 @@ int main(int argc, char **argv) {
         if (a == "-driver") cfg.driver = val("-driver");
         else if (a == "-gain") { std::string v = val("-gain"); cfg.gain = (v == "auto") ? -1 : atof(v.c_str()); }
         else if (a == "-rate") { std::string v = val("-rate"); cfg.want_rate = (v == "auto") ? 0 : atof(v.c_str()); }
-        else if (a == "-center") { std::string v = val("-center"); cfg.want_center = (v == "auto") ? 0 : atof(v.c_str()); }
+        else if (a == "-center") {
+            std::string v = val("-center");
+            if (v == "auto") cfg.center_mode = CenterMode::Auto;
+            else if (v == "edge") cfg.center_mode = CenterMode::Edge;
+            else { cfg.center_mode = CenterMode::Fixed; cfg.want_center = atof(v.c_str()); }
+        }
         else if (a == "-guard") cfg.guard = atof(val("-guard").c_str());
         else if (a == "-ppm") cfg.ppm = atof(val("-ppm").c_str());
         else if (a == "-antenna") cfg.antenna = val("-antenna");

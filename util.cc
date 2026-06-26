@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <string>
 #include <vector>
 #include <sys/time.h>
@@ -13,10 +14,39 @@ double now() {
     return tv.tv_sec + tv.tv_usec / 1e6;
 }
 
+static const double CHAN_HALF = 6000.0;   // a channel's half-width (OUT_RATE/2), the anti-alias floor
+
 double resolve_center(const CaptureConfig &c) {
-    if (c.want_center > 0) return c.want_center;
-    double mn = *std::min_element(c.dials.begin(), c.dials.end());
-    return mn - c.guard;   // LO below the lowest channel: all channels at positive offset
+    if (c.center_mode == CenterMode::Fixed) return c.want_center;
+    std::vector<double> d = c.dials;
+    std::sort(d.begin(), d.end());
+    double mn = d.front(), mx = d.back();
+    if (c.center_mode == CenterMode::Edge)
+        return mn - c.guard;   // LO below all channels: every channel at a positive offset
+
+    // Auto: minimize the farthest channel offset (and so the sample rate) while
+    // keeping every channel at least `guard` from the LO, so the DC spike never
+    // lands in a channel. The unconstrained optimum is the cluster midpoint. If a
+    // channel sits within `guard` of it, slide the LO into the best gap between two
+    // adjacent channels that is wide enough; if none is, fall back to the one-sided
+    // layout (LO just below all channels).
+    double mid = 0.5 * (mn + mx);
+    double best = mn - c.guard;                  // one-sided fallback
+    double best_off = mx - best;                 // = span + guard
+    for (size_t i = 0; i + 1 < d.size(); i++) {
+        if (d[i + 1] - d[i] < 2 * c.guard) continue;   // no room for the LO in this gap
+        double lo = d[i] + c.guard, hi = d[i + 1] - c.guard;
+        double cand = std::min(std::max(mid, lo), hi);  // midpoint clamped into the gap
+        double off = std::max(mx - cand, cand - mn);
+        if (off < best_off) { best_off = off; best = cand; }
+    }
+    return best;
+}
+
+double max_offset(const CaptureConfig &c, double center) {
+    double m = 0;
+    for (double d : c.dials) m = std::max(m, std::fabs(d - center));
+    return m;
 }
 
 std::string normalize_driver(const std::string &name) {
@@ -33,9 +63,10 @@ double resolve_rate(const CaptureConfig &c, double center, const std::vector<dou
     const int OUT = 12000;
     if (c.want_rate > 0) return c.want_rate;   // explicit override (trust the operator)
 
-    // Need rate/2 to reach the top channel's USB passband, plus LPF transition margin.
-    double mx = *std::max_element(c.dials.begin(), c.dials.end());
-    double lo = 2.0 * ((mx - center) + 6000.0);
+    // rate/2 must reach the farthest channel plus `guard` clearance to the band edge.
+    // The channel half-width (6 kHz) is the floor so a small guard still cannot alias.
+    double edge = std::max(c.guard, CHAN_HALF);
+    double lo = 2.0 * (max_offset(c, center) + edge);
 
     int n = (int)std::ceil(lo / OUT);
     if (n < 1) n = 1;
@@ -46,4 +77,30 @@ double resolve_rate(const CaptureConfig &c, double center, const std::vector<dou
             if (r >= ranges[i] - 1 && r <= ranges[i + 1] + 1) return r;
     }
     return 0;   // no integer-x12k rate the device supports spans the channels
+}
+
+std::string check_channels(const CaptureConfig &c, double center, double rate) {
+    const double half = rate / 2.0;
+    for (double d : c.dials) {                       // hard error: passband over Nyquist
+        double off = std::fabs(d - center);
+        if (off + CHAN_HALF > half) {
+            char buf[192];
+            std::snprintf(buf, sizeof buf,
+                "channel %.0f Hz aliases at rate %.0f Hz (offset %.0f from center needs "
+                "rate >= %.0f). raise -rate or use -center auto",
+                d, rate, off, 2.0 * (off + CHAN_HALF));
+            return buf;
+        }
+    }
+    for (double d : c.dials) {                       // soft warnings
+        double off = std::fabs(d - center);
+        if (off > half - c.guard)
+            std::fprintf(stderr, "sdrfanout: warning: channel %.0f Hz is within guard "
+                "(%.0f Hz) of the band edge, the SDR roll-off may attenuate it\n",
+                d, c.guard);
+        if (off < c.guard)
+            std::fprintf(stderr, "sdrfanout: warning: channel %.0f Hz is within guard "
+                "(%.0f Hz) of the LO, the DC spike may land in it\n", d, c.guard);
+    }
+    return "";
 }

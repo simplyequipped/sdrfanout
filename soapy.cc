@@ -114,6 +114,16 @@ Capture *make_soapy(const CaptureConfig &c, std::string &err) {
         return nullptr;
     }
 
+    // The delivered rate may differ from what we sized for, so check the channels
+    // against the actual center/rate: fail on a channel that would alias, warn on
+    // one too near a band edge or the LO.
+    std::string cerr = check_channels(c, center, rate);
+    if (!cerr.empty()) {
+        err = cerr;
+        SoapySDR::Device::unmake(dev);
+        return nullptr;
+    }
+
     SoapySDR::Stream *st = nullptr;
     try {
         st = dev->setupStream(SOAPY_SDR_RX, SOAPY_SDR_CF32);   // CF32 = interleaved complex<float>

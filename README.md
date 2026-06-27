@@ -28,13 +28,14 @@ usage: sdrfanout -ch <dial_hz>:<path> [-ch ...] [options]
   -gain <db|auto>         default: auto (AGC / device default)
   -rate <hz|auto>         sample rate in Hz, default: auto
                           auto: smallest multiple of 12k spanning all channels
-  -center <hz|auto|edge>  center frequuency in Hz, default: auto
+  -center <hz|auto|edge>  center frequency in Hz, default: auto
                           auto: centered amidst channels, offset from DC by *guard*
                           edge: *guard* Hz below the lowest channel
   -guard <hz>             offset around center (DC) and band edges in Hz, default: 10000
   -ppm <n>                frequency correction, default: 0
   -antenna <name>         Soapy antenna, default: not set (device default)
   -buffer <sec>           per-channel output buffer in seconds, default: 1
+  -threads <n>            DSP worker threads, default: auto (one per channel, capped at cores)
   -ch <dial>[:<path>]     channel dial freq (Hz) + output FIFO, path defaults to
                           /tmp/sdrfanout/<dial>.fifo, set path to '-' for stdout
 ```

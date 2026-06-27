@@ -49,6 +49,14 @@ double max_offset(const CaptureConfig &c, double center) {
     return m;
 }
 
+int auto_threads(int channels, int cores) {
+    if (channels < 1) return 1;
+    if (cores < 1) cores = 1;
+    if (cores > channels) cores = channels;          // never more workers than channels
+    int best_max = (channels + cores - 1) / cores;   // ceil: minimal busiest-worker load
+    return (channels + best_max - 1) / best_max;      // smallest thread count that reaches it
+}
+
 std::string normalize_driver(const std::string &name) {
     return name.empty() ? name : "driver=" + name;   // "hackrf" -> "driver=hackrf"
 }

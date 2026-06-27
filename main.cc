@@ -24,17 +24,20 @@ static void on_signal(int) { g_stop = true; }
 static void usage() {
     std::fprintf(stderr,
         "usage: sdrfanout -ch <dial_hz>:<path> [-ch ...] [options]\n"
-        "  -driver <dev>     SoapySDR device name (ex. hackrf) or 'synth'\n"
-        "  -gain <db|auto>   default: auto (AGC / device default)\n"
-        "  -rate <hz|auto>   default: auto (smallest integer x 12k spanning the channels)\n"
-        "  -center <hz|auto|edge> default: auto (LO centered in the channels, off the DC\n"
-        "                    spike). edge = LO just below all channels (one-sided)\n"
-        "  -guard <hz>       channel clearance from the LO and band edges, default: 10000\n"
-        "  -ppm <n>          frequency correction, default: 0\n"
-        "  -antenna <name>   Soapy antenna, default: device default\n"
-        "  -buffer <sec>     per-channel output buffer in seconds, default: 1\n"
-        "  -ch <dial>[:<path>] channel: dial freq (Hz) + output FIFO, path defaults to\n"
-        "                    " SDRFANOUT_TMPDIR "/<dial>.fifo, set path to '-' for stdout\n");
+        "  -driver <dev>           SoapySDR device name (ex. hackrf, rtlsdr, etc) or 'synth'\n"
+        "  -gain <db|auto>         default: auto (AGC / device default)\n"
+        "  -rate <hz|auto>         sample rate in Hz, default: auto\n"
+        "                          auto: smallest multiple of 12k spanning all channels\n"
+        "  -center <hz|auto|edge>  center frequency in Hz, default: auto\n"
+        "                          auto: centered amidst channels, offset from DC by *guard*\n"
+        "                          edge: *guard* Hz below the lowest channel\n"
+        "  -guard <hz>             offset around center (DC) and band edges in Hz, default: 10000\n"
+        "  -ppm <n>                frequency correction, default: 0\n"
+        "  -antenna <name>         Soapy antenna, default: not set (device default)\n"
+        "  -buffer <sec>           per-channel output buffer in seconds, default: 1\n"
+        "  -threads <n>            DSP worker threads, default: auto (one per channel, capped at cores)\n"
+        "  -ch <dial>[:<path>]     channel dial freq (Hz) + output FIFO, path defaults to\n"
+        "                          " SDRFANOUT_TMPDIR "/<dial>.fifo, set path to '-' for stdout\n");
     std::exit(2);
 }
 
@@ -69,6 +72,7 @@ int main(int argc, char **argv) {
         else if (a == "-ppm") cfg.ppm = atof(val("-ppm").c_str());
         else if (a == "-antenna") cfg.antenna = val("-antenna");
         else if (a == "-buffer") buffer_sec = atof(val("-buffer").c_str());
+        else if (a == "-threads") cfg.threads = atoi(val("-threads").c_str());
         else if (a == "-ch") {
             std::string v = val("-ch");
             auto colon = v.rfind(':');
@@ -123,7 +127,7 @@ int main(int argc, char **argv) {
     std::signal(SIGTERM, on_signal);
     std::signal(SIGPIPE, SIG_IGN);
 
-    int rc = run_producer(cap, chans, frame, buffer_sec, &g_stop);
+    int rc = run_producer(cap, chans, frame, buffer_sec, &g_stop, cfg.threads);
 
     for (auto &c : chans)
         if (c.dropped) std::fprintf(stderr, "sdrfanout: ch %.0f dropped %ld frames\n", c.dial, c.dropped);

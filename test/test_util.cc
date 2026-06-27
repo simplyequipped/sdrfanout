@@ -86,6 +86,17 @@ int main() {
         if (!aliased) { std::printf("FAIL too-small rate not caught\n"); fails++; }
     }
 
+    // --- auto thread count -----------------------------------------------
+    // pick the fewest workers that still minimize the busiest worker's load
+    eqd(auto_threads(6, 4), 3, "auto_threads 6ch/4core");    // 4 would tie up a core for nothing
+    eqd(auto_threads(8, 4), 4, "auto_threads 8ch/4core");    // even split, use all cores
+    eqd(auto_threads(5, 4), 3, "auto_threads 5ch/4core");
+    eqd(auto_threads(9, 4), 3, "auto_threads 9ch/4core");    // 3x3 beats 3,2,2,2
+    eqd(auto_threads(2, 4), 2, "auto_threads 2ch/4core");    // never more workers than channels
+    eqd(auto_threads(100, 4), 4, "auto_threads 100ch/4core");// channels >> cores: use all cores
+    eqd(auto_threads(6, 12), 6, "auto_threads 6ch/12core");  // cores to spare: one per channel
+    eqd(auto_threads(1, 4), 1, "auto_threads 1ch");
+
     std::printf("%s\n", fails == 0 ? "PASS" : "FAIL");
     return fails == 0 ? 0 : 1;
 }

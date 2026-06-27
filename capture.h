@@ -30,7 +30,8 @@ struct CaptureConfig {
     double guard = 10000;          // Hz a channel must stay clear of the LO and each band edge
     double want_rate = 0;          // 0 = auto
     CenterMode center_mode = CenterMode::Auto;
-    double want_center = 0;        // LO frequency, used only when center_mode == Fixed
+    double want_center = 0;        // center frequency, used only when center_mode == Fixed
+    int threads = 0;               // DSP worker threads, 0 = auto (balanced over the cores)
 };
 
 // auto-resolution (util.cc)
@@ -40,6 +41,10 @@ double resolve_center(const CaptureConfig &c);
 double resolve_rate(const CaptureConfig &c, double center, const std::vector<double> &ranges);
 // largest |dial - center| over the channels (the channel that drives the rate)
 double max_offset(const CaptureConfig &c, double center);
+// fewest DSP worker threads that still minimize the busiest worker's channel count,
+// given the core count. Splitting N channels over more threads than this can't lower
+// the critical path (ceil(N/threads)), so the extra threads only tie up cores.
+int auto_threads(int channels, int cores);
 // Validate the channels against the chosen center/rate. Returns a non-empty error
 // string if any channel's passband crosses +/-rate/2 (it would alias). Emits a
 // stderr warning for a channel within `guard` of a band edge or of the LO.

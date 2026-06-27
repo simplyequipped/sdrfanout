@@ -1,6 +1,6 @@
 CXX = c++
-CXXFLAGS = -O2 -std=c++17 -Wall
-SOAPY_LIBS = -lSoapySDR -lpthread
+CXXFLAGS = -O2 -std=c++17 -Wall -pthread
+SOAPY_LIBS = -lSoapySDR
 
 # The sdrfanout binary. soapy.cc holds the SoapySDR Capture implementation.
 SRC = main.cc util.cc synth.cc soapy.cc dsp.cc framer.cc run.cc
@@ -22,7 +22,11 @@ test/test_stream: test/test_stream.cc dsp.cc framer.cc
 test/test_loop: test/test_loop.cc run.cc dsp.cc framer.cc synth.cc util.cc
 	$(CXX) $(CXXFLAGS) -I. test/test_loop.cc run.cc dsp.cc framer.cc synth.cc util.cc -o $@ -lm
 
-test: test/test_util test/test_dsp test/test_stream test/test_loop
+# Multi-thread fan-out must be byte-identical to single-thread.
+test/test_threads: test/test_threads.cc run.cc dsp.cc framer.cc synth.cc util.cc
+	$(CXX) $(CXXFLAGS) -I. test/test_threads.cc run.cc dsp.cc framer.cc synth.cc util.cc -o $@ -lm
+
+test: test/test_util test/test_dsp test/test_stream test/test_loop test/test_threads
 	./test/test_util
 	@echo
 	./test/test_dsp
@@ -30,8 +34,10 @@ test: test/test_util test/test_dsp test/test_stream test/test_loop
 	./test/test_stream
 	@echo
 	./test/test_loop
+	@echo
+	./test/test_threads
 
 clean:
-	rm -f sdrfanout test/test_util test/test_dsp test/test_stream test/test_loop
+	rm -f sdrfanout test/test_util test/test_dsp test/test_stream test/test_loop test/test_threads
 
 .PHONY: test clean

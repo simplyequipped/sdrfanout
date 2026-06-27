@@ -1,5 +1,5 @@
 CXX = c++
-CXXFLAGS = -O2 -std=c++17 -Wall -pthread
+CXXFLAGS = -O3 -std=c++17 -Wall -ffast-math -pthread
 SOAPY_LIBS = -lSoapySDR
 
 # The sdrfanout binary. soapy.cc holds the SoapySDR Capture implementation.

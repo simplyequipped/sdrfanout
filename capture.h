@@ -41,6 +41,16 @@ double resolve_center(const CaptureConfig &c);
 double resolve_rate(const CaptureConfig &c, double center, const std::vector<double> &ranges);
 // largest |dial - center| over the channels (the channel that drives the rate)
 double max_offset(const CaptureConfig &c, double center);
+// the span (Hz) the channels occupy plus their guard clearance: the minimum the
+// sample rate and the SDR analog bandwidth must both cover.
+double min_span(const CaptureConfig &c, double center);
+// smallest device bandwidth that covers `required`, chosen from the device's
+// discrete list (preferred when non-empty) or its continuous `ranges` (flat
+// [min,max,...]). Falls back to the widest available if none covers `required`.
+// Returns 0 when the device reports neither, telling the caller to leave the
+// device bandwidth untouched.
+double resolve_bandwidth(double required, const std::vector<double> &discrete,
+                         const std::vector<double> &ranges);
 // fewest DSP worker threads that still minimize the busiest worker's channel count,
 // given the core count. Splitting N channels over more threads than this can't lower
 // the critical path (ceil(N/threads)), so the extra threads only tie up cores.

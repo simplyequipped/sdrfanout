@@ -72,8 +72,21 @@ Capture *make_soapy(const CaptureConfig &c, std::string &err) {
         ranges.push_back(rg.maximum());
     }
 
+    // The analog bandwidth the channels need, chosen from what the device reports.
+    // listBandwidths is the discrete set (e.g. an RSP's IF filters); getBandwidthRange
+    // is a continuous span (e.g. a HackRF). Either may be empty on drivers that do not
+    // expose bandwidth control, in which case resolve_bandwidth returns 0 and the
+    // device keeps its own default.
+    std::vector<double> bw_discrete = dev->listBandwidths(SOAPY_SDR_RX, 0);
+    std::vector<double> bw_ranges;
+    for (auto &rg : dev->getBandwidthRange(SOAPY_SDR_RX, 0)) {
+        bw_ranges.push_back(rg.minimum());
+        bw_ranges.push_back(rg.maximum());
+    }
+
     double center = resolve_center(c);
-    double rate = resolve_rate(c, center, ranges);
+    double bandwidth = resolve_bandwidth(min_span(c, center), bw_discrete, bw_ranges);
+    double rate = resolve_rate(c, center, ranges);   // rate covers the channels, see the bw warning
     if (rate <= 0) {
         err = "device supports no integer-multiple-of-12kHz rate that spans the channels";
         SoapySDR::Device::unmake(dev);
@@ -88,6 +101,14 @@ Capture *make_soapy(const CaptureConfig &c, std::string &err) {
     try {
         dev->setSampleRate(SOAPY_SDR_RX, 0, rate);
         rate = dev->getSampleRate(SOAPY_SDR_RX, 0);       // device may round, use what it'll deliver
+        if (bandwidth > 0) {
+            dev->setBandwidth(SOAPY_SDR_RX, 0, bandwidth);   // open the analog filter to cover the channels
+            bandwidth = dev->getBandwidth(SOAPY_SDR_RX, 0);  // what the device actually applied
+            if (bandwidth > rate)                            // narrowest filter wider than Nyquist
+                std::fprintf(stderr, "sdrfanout: warning: analog bandwidth %.0f Hz exceeds the "
+                             "sample rate %.0f Hz, out-of-band signals will alias onto the channels "
+                             "(raise -rate for a clean window)\n", bandwidth, rate);
+        }
         dev->setFrequency(SOAPY_SDR_RX, 0, center);
         if (c.ppm != 0) {
             if (dev->hasFrequencyCorrection(SOAPY_SDR_RX, 0))
@@ -134,7 +155,9 @@ Capture *make_soapy(const CaptureConfig &c, std::string &err) {
         return nullptr;
     }
 
-    std::fprintf(stderr, "sdrfanout: %s  rate=%.0f Hz  center=%.0f Hz\n",
-                 c.driver.empty() ? "(first device)" : c.driver.c_str(), rate, center);
+    char bwbuf[48] = "";
+    if (bandwidth > 0) std::snprintf(bwbuf, sizeof bwbuf, "  bw=%.0f Hz", bandwidth);
+    std::fprintf(stderr, "sdrfanout: %s  rate=%.0f Hz  center=%.0f Hz%s\n",
+                 c.driver.empty() ? "(first device)" : c.driver.c_str(), rate, center, bwbuf);
     return new SoapyCapture(dev, st, rate, center);
 }

@@ -86,6 +86,22 @@ int main() {
         if (!aliased) { std::printf("FAIL too-small rate not caught\n"); fails++; }
     }
 
+    // --- analog bandwidth selection --------------------------------------
+    {
+        // RSP-style discrete IF filters: pick the smallest that covers the span.
+        std::vector<double> rsp = {200e3, 300e3, 600e3, 1.536e6, 5e6, 6e6, 7e6, 8e6};
+        eqd(resolve_bandwidth(3.525e6, rsp, {}), 5e6, "discrete smallest covering");
+        eqd(resolve_bandwidth(1.5e6, rsp, {}), 1.536e6, "discrete exact-ish");
+        eqd(resolve_bandwidth(9e6, rsp, {}), 8e6, "discrete none covers -> widest");
+        // Continuous range (e.g. a HackRF baseband filter): clamp the request in.
+        std::vector<double> cont = {1.75e6, 28e6};
+        eqd(resolve_bandwidth(3.525e6, {}, cont), 3.525e6, "continuous within range");
+        eqd(resolve_bandwidth(1e6, {}, cont), 1.75e6, "continuous below min -> min");
+        eqd(resolve_bandwidth(30e6, {}, cont), 28e6, "continuous above max -> widest");
+        // No bandwidth control reported: 0 tells the caller to leave it alone.
+        eqd(resolve_bandwidth(3e6, {}, {}), 0, "no bandwidth control -> 0");
+    }
+
     // --- auto thread count -----------------------------------------------
     // pick the fewest workers that still minimize the busiest worker's load
     eqd(auto_threads(6, 4), 3, "auto_threads 6ch/4core");    // 4 would tie up a core for nothing

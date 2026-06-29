@@ -52,6 +52,13 @@ ft8mon  -card stream /tmp/sdrfanout/7074000.fifo
 wsprmon -card stream /tmp/sdrfanout/7038600.fifo
 ```
 
+sdrfanout sets the SDR analog bandwidth to the narrowest the device offers that
+still covers every channel. If the device's narrowest filter is wider than the
+sample rate the channels need, out-of-band signals can alias onto the channels.
+sdrfanout warns when that happens, raise `-rate` for a clean window if the extra
+sample rate is affordable. A device that reports no bandwidth control keeps its
+default.
+
 ## Stream Format
 
 Each channel is its own output: a continuous little-endian sequence of

@@ -67,14 +67,39 @@ bool rate_ok(double rate) {
     return n >= 1 && std::fabs(rate - (double)n * 12000.0) < 1.0;
 }
 
+double min_span(const CaptureConfig &c, double center) {
+    // rate/2 must reach the farthest channel plus `guard` clearance to the band edge.
+    // The channel half-width (6 kHz) is the floor so a small guard still cannot alias.
+    double edge = std::max(c.guard, CHAN_HALF);
+    return 2.0 * (max_offset(c, center) + edge);
+}
+
+double resolve_bandwidth(double required, const std::vector<double> &discrete,
+                         const std::vector<double> &ranges) {
+    if (!discrete.empty()) {                         // discrete filters (e.g. RSP IF filters)
+        double best = 0, widest = 0;
+        for (double v : discrete) {
+            if (v > widest) widest = v;
+            if (v + 1 >= required && (best == 0 || v < best)) best = v;
+        }
+        return best > 0 ? best : widest;             // smallest covering, else the widest
+    }
+    double best = 0, widest = 0;                     // continuous ranges (flat min,max,...)
+    for (size_t i = 0; i + 1 < ranges.size(); i += 2) {
+        double mn = ranges[i], mx = ranges[i + 1];
+        if (mx > widest) widest = mx;
+        double cand = std::max(required, mn);        // clamp the request up into the range
+        if (cand <= mx + 1 && (best == 0 || cand < best)) best = cand;
+    }
+    if (best > 0) return best;
+    return widest;                                   // 0 only if the device reports neither
+}
+
 double resolve_rate(const CaptureConfig &c, double center, const std::vector<double> &ranges) {
     const int OUT = 12000;
     if (c.want_rate > 0) return c.want_rate;   // explicit override (trust the operator)
 
-    // rate/2 must reach the farthest channel plus `guard` clearance to the band edge.
-    // The channel half-width (6 kHz) is the floor so a small guard still cannot alias.
-    double edge = std::max(c.guard, CHAN_HALF);
-    double lo = 2.0 * (max_offset(c, center) + edge);
+    double lo = min_span(c, center);           // the rate covers the channels, not the filter
 
     int n = (int)std::ceil(lo / OUT);
     if (n < 1) n = 1;

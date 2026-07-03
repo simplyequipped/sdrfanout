@@ -37,8 +37,8 @@ int main() {
     if (fd < 0) { perror("mkstemp"); return 2; }
 
     // produce: 10 blocks of 0.1 s IQ (USB tone at +1500 Hz), each -> one frame
-    ChannelChain ch(delta, fs);
-    Framer fr(fd, 12000, frame, 1.0);
+    ChannelChain ch(delta, fs, 12000, Mode::USB, Format::I16);
+    Framer fr(fd, 12000, frame, 1.0, /*sample_bytes=*/2, /*framed=*/true, /*f32=*/false);
     int blk = fs / 10;
     for (int b = 0; b < 10; b++) {
         std::vector<std::complex<float>> iq(blk);
@@ -47,10 +47,10 @@ int main() {
             double ph = 2 * PI * (delta + 1500.0) * idx / fs;
             iq[n] = std::complex<float>(0.5f * std::cos(ph), 0.5f * std::sin(ph));
         }
-        std::vector<int16_t> audio;
-        ch.process(iq.data(), iq.size(), audio);
+        std::vector<uint8_t> bytes;
+        ch.process(iq.data(), iq.size(), bytes);
         double t_newest = t0 + (b + 1) * 0.1;        // newest sample of this block
-        fr.add(audio.data(), audio.size(), t_newest);
+        fr.add(bytes.data(), bytes.size(), t_newest);
     }
     lseek(fd, 0, SEEK_SET);
 

@@ -92,8 +92,9 @@ Capture *make_soapy(const CaptureConfig &c, std::string &err) {
         SoapySDR::Device::unmake(dev);
         return nullptr;
     }
-    if (!rate_ok(rate)) {                                  // e.g. a bad -rate override
-        err = "rate " + std::to_string((long)rate) + " is not an integer multiple of 12000";
+    if (!rate_ok(rate, c.outrate)) {                       // e.g. a bad -rate override
+        err = "rate " + std::to_string((long)rate) +
+              " is not an integer multiple of " + std::to_string(c.outrate);
         SoapySDR::Device::unmake(dev);
         return nullptr;
     }
@@ -128,9 +129,9 @@ Capture *make_soapy(const CaptureConfig &c, std::string &err) {
         SoapySDR::Device::unmake(dev);
         return nullptr;
     }
-    if (!rate_ok(rate)) {                                 // device rounded to a non-12k-multiple
+    if (!rate_ok(rate, c.outrate)) {                      // device rounded to a non-multiple
         err = "device delivered rate " + std::to_string((long)rate) +
-              ", not an integer multiple of 12000";
+              ", not an integer multiple of " + std::to_string(c.outrate);
         SoapySDR::Device::unmake(dev);
         return nullptr;
     }

@@ -20,11 +20,11 @@ static const double STATS_SEC = 60.0;   // how often to report ongoing frame dro
 // scratch (one per caller) to avoid reallocating each buffer.
 static void process_range(std::vector<ChannelChain> &chains, std::vector<Framer> &framers,
                           const std::complex<float> *iq, int n, double t_recv,
-                          size_t lo, size_t hi, std::vector<int16_t> &audio) {
+                          size_t lo, size_t hi, std::vector<uint8_t> &bytes) {
     for (size_t i = lo; i < hi; i++) {
-        audio.clear();
-        chains[i].process(iq, (size_t)n, audio);
-        if (!audio.empty()) framers[i].add(audio.data(), audio.size(), t_recv);
+        bytes.clear();
+        chains[i].process(iq, (size_t)n, bytes);
+        if (!bytes.empty()) framers[i].add(bytes.data(), bytes.size(), t_recv);
     }
 }
 
@@ -47,8 +47,7 @@ struct Pool {
 }
 
 int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
-                 int frame_samples, double buffer_sec, volatile bool *stop,
-                 int threads) {
+                 double buffer_sec, volatile bool *stop, int threads) {
     const int fs = (int)cap->rate();
     const double center = cap->center();
     const size_t nch = chans.size();
@@ -58,8 +57,13 @@ int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
     chains.reserve(nch);
     framers.reserve(nch);
     for (auto &c : chans) {
-        chains.emplace_back(c.dial - center, fs);
-        framers.emplace_back(c.fd, ChannelChain::OUT_RATE, frame_samples, buffer_sec);
+        chains.emplace_back(c.dial - center, fs, c.outrate, c.mode, c.format);
+        int elem = (c.format == Format::F32) ? 4 : 2;
+        int sample_bytes = elem * ((c.mode == Mode::IQ) ? 2 : 1);
+        int frame = c.outrate / 10;                    // 0.1 s of this channel's output
+        if (frame < 1) frame = 1;
+        framers.emplace_back(c.fd, c.outrate, frame, buffer_sec,
+                             sample_bytes, c.mode != Mode::IQ, c.format == Format::F32);
     }
 
     int nthreads = threads;
@@ -85,7 +89,7 @@ int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
             size_t lo = (size_t)t * nch / nthreads;
             size_t hi = (size_t)(t + 1) * nch / nthreads;
             workers.emplace_back([&, lo, hi] {
-                std::vector<int16_t> audio;
+                std::vector<uint8_t> bytes;
                 uint64_t seen = 0;
                 for (;;) {
                     std::unique_lock<std::mutex> lk(pool.m);
@@ -96,7 +100,7 @@ int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
                     int bn = pool.n;
                     double bt = pool.t_recv;
                     lk.unlock();
-                    process_range(chains, framers, biq, bn, bt, lo, hi, audio);
+                    process_range(chains, framers, biq, bn, bt, lo, hi, bytes);
                     lk.lock();
                     if (--pool.pending == 0) pool.cv_done.notify_one();
                 }
@@ -104,7 +108,7 @@ int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
         }
     }
 
-    std::vector<int16_t> audio;   // single-thread scratch
+    std::vector<uint8_t> bytes;   // single-thread scratch
     while (!*stop) {
         double t_recv;
         int n = cap->read(iq.data(), (int)iq.size(), t_recv);
@@ -123,7 +127,7 @@ int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
             pool.cv_work.notify_all();
             pool.cv_done.wait(lk, [&] { return pool.pending == 0; });
         } else {
-            process_range(chains, framers, iq.data(), n, t_recv, 0, nch, audio);
+            process_range(chains, framers, iq.data(), n, t_recv, 0, nch, bytes);
         }
 
         // Periodic drop report: one stderr line per channel that lost frames

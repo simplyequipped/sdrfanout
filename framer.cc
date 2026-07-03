@@ -5,38 +5,46 @@
 #include <cstring>
 #include <utility>
 
-Framer::Framer(int fd, int rate, int frame_samples, double buffer_sec)
-    : fd_(fd), rate_(rate), frame_(frame_samples), t_newest_(0), dropped_(0) {
-    double fps = (double)rate_ / frame_;                 // frames per second
+Framer::Framer(int fd, int outrate, int frame_samples, double buffer_sec,
+               int sample_bytes, bool framed, bool f32)
+    : fd_(fd), outrate_(outrate), frame_(frame_samples), sample_bytes_(sample_bytes),
+      framed_(framed), f32_(f32), t_newest_(0), dropped_(0) {
+    frame_bytes_ = (size_t)frame_ * sample_bytes_;
+    double fps = (double)outrate_ / frame_;              // frames per second
     max_frames_ = (size_t)(buffer_sec * fps + 0.5);
     if (max_frames_ < 1) max_frames_ = 1;
 }
 
-void Framer::add(const int16_t *a, size_t n, double t_newest_sec) {
-    buf_.insert(buf_.end(), a, a + n);
+void Framer::add(const uint8_t *bytes, size_t nbytes, double t_newest_sec) {
+    buf_.insert(buf_.end(), bytes, bytes + nbytes);
     t_newest_ = t_newest_sec;
-    while ((int)buf_.size() >= frame_) emit();
+    while (buf_.size() >= frame_bytes_) emit();
     drain();
 }
 
 void Framer::emit() {
-    // wall time of buf_[0] (the frame's first sample) = newest − (count−1)/rate
-    double t_first = t_newest_ - (double)(buf_.size() - 1) / rate_;
+    // wall time of the frame's first sample = newest - (count-1)/outrate
+    size_t samples = buf_.size() / sample_bytes_;
+    double t_first = t_newest_ - (double)(samples - 1) / outrate_;
 
-    sdrf_hdr h;
-    h.magic = SDRF_MAGIC;
-    h.version = SDRF_VERSION;
-    h.flags = 0;
-    h.rate_hz = (uint32_t)rate_;
-    h.nsamples = (uint32_t)frame_;
-    h.t_usec = (uint64_t)(t_first * 1e6 + 0.5);
-
-    std::vector<uint8_t> f(sizeof(sdrf_hdr) + (size_t)frame_ * sizeof(int16_t));
-    std::memcpy(f.data(), &h, sizeof h);
-    std::memcpy(f.data() + sizeof h, buf_.data(), (size_t)frame_ * sizeof(int16_t));
+    std::vector<uint8_t> f;
+    if (framed_) {
+        sdrf_hdr h;
+        h.magic = SDRF_MAGIC;
+        h.version = SDRF_VERSION;
+        h.flags = f32_ ? SDRF_FLAG_F32 : 0;
+        h.rate_hz = (uint32_t)outrate_;
+        h.nsamples = (uint32_t)frame_;
+        h.t_usec = (uint64_t)(t_first * 1e6 + 0.5);
+        f.resize(sizeof h + frame_bytes_);
+        std::memcpy(f.data(), &h, sizeof h);
+        std::memcpy(f.data() + sizeof h, buf_.data(), frame_bytes_);
+    } else {                                             // IQ: raw headerless bytes
+        f.assign(buf_.begin(), buf_.begin() + frame_bytes_);
+    }
     queue_.push_back(std::move(f));
 
-    buf_.erase(buf_.begin(), buf_.begin() + frame_);
+    buf_.erase(buf_.begin(), buf_.begin() + frame_bytes_);
 }
 
 void Framer::drain() {

@@ -102,6 +102,21 @@ int main() {
         eqd(resolve_bandwidth(3e6, {}, {}), 0, "no bandwidth control -> 0");
     }
 
+    // --- non-default output rate: the rate logic is outrate-relative ------
+    // main.cc sets c.outrate to the lcm of the per-channel outrates, so resolve_rate,
+    // check_channels, and rate_ok must all size and gate against that, not a hardcoded
+    // 12000. Here outrate=48000: the channel half-width floor is 24k and the SDR rate
+    // must be a multiple of 48000.
+    {
+        CaptureConfig c = cfg_of({7038600, 7074000});
+        c.outrate = 48000;
+        double center = resolve_center(c);
+        eqd(resolve_rate(c, center, {}), 96000, "48k outrate: auto rate is 2x48k");
+        eq(check_channels(c, center, 96000), "", "48k outrate: channels fit at 96k");
+        if (!rate_ok(96000, 48000)) { std::printf("FAIL 96k is a 48k multiple\n"); fails++; }
+        if (rate_ok(60000, 48000))  { std::printf("FAIL 60k is not a 48k multiple\n"); fails++; }
+    }
+
     // --- auto thread count -----------------------------------------------
     // pick the fewest workers that still minimize the busiest worker's load
     eqd(auto_threads(6, 4), 3, "auto_threads 6ch/4core");    // 4 would tie up a core for nothing

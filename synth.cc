@@ -47,8 +47,9 @@ Capture *make_synth(const CaptureConfig &c, std::string &err) {
     double center = resolve_center(c);
     double rate = resolve_rate(c, center, {});           // synth: any rate
     if (rate <= 0) { err = "synth: could not resolve sample rate"; return 0; }
-    if (!rate_ok(rate)) {
-        err = "rate " + std::to_string((long)rate) + " is not an integer multiple of 12000";
+    if (!rate_ok(rate, c.outrate)) {
+        err = "rate " + std::to_string((long)rate) +
+              " is not an integer multiple of " + std::to_string(c.outrate);
         return 0;
     }
     return new SynthCapture(rate, center, c.dials, 0, true);   // infinite, paced

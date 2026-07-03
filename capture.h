@@ -21,6 +21,12 @@ struct Capture {
 //   Fixed: use want_center verbatim.
 enum class CenterMode { Auto, Edge, Fixed };
 
+// A channel's output. USB/LSB demodulate to real single-sideband audio; IQ ships
+// the complex baseband (no demod) for a consumer to finish.
+enum class Mode { USB, LSB, IQ };
+// Output sample element type: int16 (scaled) or float32 (raw, ~[-1,1]).
+enum class Format { I16, F32 };
+
 struct CaptureConfig {
     std::string driver;            // Soapy device args, or "synth"
     double gain = -1;              // dB, <0 = device default / AGC
@@ -32,6 +38,9 @@ struct CaptureConfig {
     CenterMode center_mode = CenterMode::Auto;
     double want_center = 0;        // center frequency, used only when center_mode == Fixed
     int threads = 0;               // DSP worker threads, 0 = auto (balanced over the cores)
+    int outrate = 12000;           // channel output sample rate (Hz); fs is an integer multiple of it
+    Mode mode = Mode::USB;         // default channel output mode (per-channel overridable)
+    Format format = Format::I16;   // output sample element type (applies to all channels)
 };
 
 // auto-resolution (util.cc)
@@ -59,10 +68,11 @@ int auto_threads(int channels, int cores);
 // string if any channel's passband crosses +/-rate/2 (it would alias). Emits a
 // stderr warning for a channel within `guard` of a band edge or of the LO.
 std::string check_channels(const CaptureConfig &c, double center, double rate);
-// true iff rate is a positive integer multiple of 12000 (within 1 Hz). The whole
-// pipeline assumes exact integer decimation fs->12000. A non-multiple would skew
-// the audio rate while still being stamped 12000, so callers must reject it.
-bool rate_ok(double rate);
+// true iff rate is a positive integer multiple of out_rate (within 1 Hz). The
+// whole pipeline assumes exact integer decimation fs->out_rate. A non-multiple
+// would skew the output rate while still being stamped out_rate, so callers must
+// reject it.
+bool rate_ok(double rate, int out_rate);
 
 // Build a SoapySDR device-args string from a plain device name: "hackrf" ->
 // "driver=hackrf" (empty -> empty, i.e. first device). -driver is a device name,

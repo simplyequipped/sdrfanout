@@ -14,7 +14,7 @@ double now() {
     return tv.tv_sec + tv.tv_usec / 1e6;
 }
 
-static const double CHAN_HALF = 6000.0;   // a channel's half-width (OUT_RATE/2), the anti-alias floor
+// a channel's half-width is out_rate/2, the anti-alias floor a channel must clear
 
 double resolve_center(const CaptureConfig &c) {
     if (c.center_mode == CenterMode::Fixed) return c.want_center;
@@ -61,16 +61,16 @@ std::string normalize_driver(const std::string &name) {
     return name.empty() ? name : "driver=" + name;   // "hackrf" -> "driver=hackrf"
 }
 
-bool rate_ok(double rate) {
-    if (rate <= 0) return false;
-    long n = (long)std::lround(rate / 12000.0);
-    return n >= 1 && std::fabs(rate - (double)n * 12000.0) < 1.0;
+bool rate_ok(double rate, int out_rate) {
+    if (rate <= 0 || out_rate <= 0) return false;
+    long n = (long)std::lround(rate / (double)out_rate);
+    return n >= 1 && std::fabs(rate - (double)n * out_rate) < 1.0;
 }
 
 double min_span(const CaptureConfig &c, double center) {
     // rate/2 must reach the farthest channel plus `guard` clearance to the band edge.
-    // The channel half-width (6 kHz) is the floor so a small guard still cannot alias.
-    double edge = std::max(c.guard, CHAN_HALF);
+    // The channel half-width (out_rate/2) is the floor so a small guard still cannot alias.
+    double edge = std::max(c.guard, c.outrate / 2.0);
     return 2.0 * (max_offset(c, center) + edge);
 }
 
@@ -96,7 +96,7 @@ double resolve_bandwidth(double required, const std::vector<double> &discrete,
 }
 
 double resolve_rate(const CaptureConfig &c, double center, const std::vector<double> &ranges) {
-    const int OUT = 12000;
+    const int OUT = c.outrate;
     if (c.want_rate > 0) return c.want_rate;   // explicit override (trust the operator)
 
     double lo = min_span(c, center);           // the rate covers the channels, not the filter
@@ -114,14 +114,15 @@ double resolve_rate(const CaptureConfig &c, double center, const std::vector<dou
 
 std::string check_channels(const CaptureConfig &c, double center, double rate) {
     const double half = rate / 2.0;
+    const double chan_half = c.outrate / 2.0;
     for (double d : c.dials) {                       // hard error: passband over Nyquist
         double off = std::fabs(d - center);
-        if (off + CHAN_HALF > half) {
+        if (off + chan_half > half) {
             char buf[192];
             std::snprintf(buf, sizeof buf,
                 "channel %.0f Hz aliases at rate %.0f Hz (offset %.0f from center needs "
                 "rate >= %.0f). raise -rate or use -center auto",
-                d, rate, off, 2.0 * (off + CHAN_HALF));
+                d, rate, off, 2.0 * (off + chan_half));
             return buf;
         }
     }

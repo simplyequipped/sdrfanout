@@ -34,17 +34,22 @@ static std::vector<float> design_hilbert(int n) {
     return h;
 }
 
-ChannelChain::ChannelChain(double delta_hz, int fs) {
+ChannelChain::ChannelChain(double delta_hz, int fs, int out_rate, Mode mode, Format format) {
     double w = -2.0 * PI * delta_hz / fs;   // mix the channel down to baseband
     rot_ = std::complex<double>(std::cos(w), std::sin(w));
     osc_ = std::complex<double>(1.0, 0.0);
     osc_count_ = 0;
 
-    D_ = fs / OUT_RATE;               // integer by contract (sdrfanout enforces the rate rule)
+    mode_ = mode;
+    format_ = format;
+    demod_sign_ = (mode_ == Mode::LSB) ? 1.0f : -1.0f;   // usb = I - H{Q}, lsb = I + H{Q}
+
+    out_rate_ = out_rate;
+    D_ = fs / out_rate_;              // integer by contract (sdrfanout enforces the rate rule)
     dec_count_ = 0;
-    int lp_len = 8 * D_ + 1;          // taps scale with D for a sharp-enough transition near 6 kHz
+    int lp_len = 8 * D_ + 1;          // taps scale with D for a sharp-enough transition near the edge
     if (lp_len > 1023) lp_len = 1023;
-    lp_ = design_lowpass(5400.0 / fs, lp_len);
+    lp_ = design_lowpass(out_rate_ * 0.45 / fs, lp_len);
     lp_hist_.assign(2 * lp_.size(), std::complex<float>(0, 0));  // double-length: see process()
     lp_pos_ = 0;
 
@@ -56,12 +61,26 @@ ChannelChain::ChannelChain(double delta_hz, int fs) {
     h_pos_ = 0;
 }
 
-void ChannelChain::process(const std::complex<float> *iq, size_t n, std::vector<int16_t> &out) {
+void ChannelChain::put(std::vector<uint8_t> &out, float v) const {
+    if (format_ == Format::I16) {
+        int x = (int)std::lrint(v * 16000.0f);   // scale with headroom, then clamp
+        if (x > 32767) x = 32767;
+        else if (x < -32768) x = -32768;
+        int16_t s = (int16_t)x;
+        const uint8_t *p = reinterpret_cast<const uint8_t *>(&s);
+        out.insert(out.end(), p, p + sizeof s);
+    } else {
+        const uint8_t *p = reinterpret_cast<const uint8_t *>(&v);   // raw float, ~[-1,1]
+        out.insert(out.end(), p, p + sizeof v);
+    }
+}
+
+void ChannelChain::process(const std::complex<float> *iq, size_t n, std::vector<uint8_t> &out) {
     const size_t L = lp_.size();
     const size_t H = hil_.size();
 
     for (size_t k = 0; k < n; k++) {
-        // 1) down-convert by Δf (recursive phasor; renormalize to hold |osc_| = 1)
+        // 1) down-convert by delta_f (recursive phasor, renormalize to hold |osc_| = 1)
         std::complex<float> x = iq[k] * std::complex<float>((float)osc_.real(),
                                                             (float)osc_.imag());
         osc_ *= rot_;
@@ -85,23 +104,24 @@ void ChannelChain::process(const std::complex<float> *iq, size_t n, std::vector<
             acc += h[t] * lp_[t];
         float I = acc.real(), Q = acc.imag();
 
-        // 3) USB demod: usb = I(delayed by group delay) − Hilbert{Q}
+        if (mode_ == Mode::IQ) {              // ship complex baseband, no demod
+            put(out, I);
+            put(out, Q);
+            continue;
+        }
+
+        // 3) SSB demod: ssb = I(delayed by group delay) +/- Hilbert{Q} (sign per mode)
         i_hist_[h_pos_] = I;
         q_hist_[h_pos_] = Q;
         float hq = 0.0f;
         size_t xi = h_pos_;                   // newest sample = x[n]
-        for (size_t t = 0; t < H; t++) {      // standard convolution: hil_[0] · newest
+        for (size_t t = 0; t < H; t++) {      // standard convolution: hil_[0] * newest
             hq += hil_[t] * q_hist_[xi];
             xi = (xi + H - 1) % H;            // step backward in time
         }
         size_t di = (h_pos_ + H - (size_t)hdelay_) % H;  // I delayed by group delay
-        float usb = i_hist_[di] - hq;
+        float ssb = i_hist_[di] + demod_sign_ * hq;
         h_pos_ = (h_pos_ + 1) % H;
-
-        // 4) to int16 with headroom
-        int v = (int)std::lrint(usb * 16000.0f);
-        if (v > 32767) v = 32767;
-        else if (v < -32768) v = -32768;
-        out.push_back((int16_t)v);
+        put(out, ssb);
     }
 }

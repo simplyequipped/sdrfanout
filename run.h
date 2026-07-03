@@ -8,14 +8,17 @@
 #include <vector>
 
 struct ChannelOut {
-    double dial;       // Hz
-    int fd;            // output fd (FIFO/file/stdout)
-    long dropped = 0;  // filled in on return
+    double dial;                   // Hz
+    int fd;                        // output fd (FIFO/file/stdout)
+    Mode mode = Mode::USB;         // channel output mode
+    Format format = Format::I16;   // output sample element type
+    int outrate = 12000;           // channel output sample rate (Hz)
+    long dropped = 0;              // filled in on return
 };
 
 // Runs until *stop, or until capture read() returns <0. Returns 0 on clean stop,
-// 1 on capture error. `threads` worker threads share the channels (<=0 = auto:
-// one per channel, capped at the core count; 1 = the inline single-thread path).
+// 1 on capture error. Each channel is framed at 0.1 s of its own output rate.
+// `threads` worker threads share the channels (<=0 = auto: one per channel, capped
+// at the core count; 1 = the inline single-thread path).
 int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
-                 int frame_samples, double buffer_sec, volatile bool *stop,
-                 int threads = 1);
+                 double buffer_sec, volatile bool *stop, int threads = 1);

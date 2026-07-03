@@ -43,12 +43,12 @@ run_with(int nthreads, const std::vector<double> &dials, double center,
         std::vector<char> buf(tmpl.begin(), tmpl.end());
         buf.push_back('\0');
         int fd = mkstemp(buf.data());
-        chans.push_back({dials[i], fd, 0});
+        chans.push_back({dials[i], fd, Mode::USB, Format::I16, 12000, 0});
         paths.emplace_back(buf.data());
     }
 
     volatile bool stop = false;
-    run_producer(&cap, chans, 1200, 1.0, &stop, nthreads);
+    run_producer(&cap, chans, 1.0, &stop, nthreads);
 
     std::vector<std::vector<int16_t>> out;
     for (size_t i = 0; i < chans.size(); i++) {

@@ -38,25 +38,26 @@ static double tone_freq(const std::vector<int16_t> &out, int fs = 12000) {
 
 // Run a complex tone at (delta + tone_off) Hz through the chain; return USB audio.
 static std::vector<int16_t> run(int fs, double delta, double tone_off) {
-    ChannelChain ch(delta, fs);
+    ChannelChain ch(delta, fs, 12000, Mode::USB, Format::I16);
     std::vector<std::complex<float>> iq(fs);  // 1 second of IQ
     double f = delta + tone_off;
     for (int n = 0; n < fs; n++) {
         double ph = 2 * PI * f * n / fs;
         iq[n] = std::complex<float>(0.5f * std::cos(ph), 0.5f * std::sin(ph));
     }
-    std::vector<int16_t> out;
+    std::vector<uint8_t> bytes;
     int blk = fs / 10;                         // 0.1 s blocks, to exercise streaming state
-    for (int b = 0; b + blk <= fs; b += blk) ch.process(&iq[b], blk, out);
-    return out;
+    for (int b = 0; b + blk <= fs; b += blk) ch.process(&iq[b], blk, bytes);
+    const int16_t *p = reinterpret_cast<const int16_t *>(bytes.data());
+    return std::vector<int16_t>(p, p + bytes.size() / sizeof(int16_t));
 }
 
 int main() {
-    int fs = 96000;          // 8 × 12000
+    int fs = 96000;          // 8 x 12000
     double delta = 9000.0;   // channel offset from SDR center
 
-    auto usb = run(fs, delta, +1500.0);  // USB side → expect audio at 1500 Hz
-    auto lsb = run(fs, delta, -1500.0);  // LSB side → expect rejected
+    auto usb = run(fs, delta, +1500.0);  // USB side -> expect audio at 1500 Hz
+    auto lsb = run(fs, delta, -1500.0);  // LSB side -> expect rejected
 
     double a_usb = tone_amp(usb, 1500.0);
     double a_lsb = tone_amp(lsb, 1500.0);

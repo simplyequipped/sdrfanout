@@ -58,13 +58,13 @@ int main() {
 
     char p0[] = "/tmp/sdrfanout_ch0.XXXXXX", p1[] = "/tmp/sdrfanout_ch1.XXXXXX";
     std::vector<ChannelOut> chans = {
-        {dials[0], mkstemp(p0), 0},
-        {dials[1], mkstemp(p1), 0},
+        {dials[0], mkstemp(p0), Mode::USB, Format::I16, 12000, 0},
+        {dials[1], mkstemp(p1), Mode::USB, Format::I16, 12000, 0},
     };
     if (chans[0].fd < 0 || chans[1].fd < 0) { perror("mkstemp"); return 2; }
 
     volatile bool stop = false;
-    int rc = run_producer(&cap, chans, 1200, 1.0, &stop);
+    int rc = run_producer(&cap, chans, 1.0, &stop);
 
     bool ok0, ok1; int f0, f1;
     auto a0 = consume(chans[0].fd, ok0, f0);

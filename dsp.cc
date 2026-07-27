@@ -59,6 +59,41 @@ ChannelChain::ChannelChain(double delta_hz, int fs, int out_rate, Mode mode, For
     i_hist_.assign(hl, 0.0f);
     q_hist_.assign(hl, 0.0f);
     h_pos_ = 0;
+
+    level_on_ = false;
+    sub_len_ = 0;
+    level_reset();
+}
+
+void ChannelChain::enable_level() {
+    level_on_ = true;
+    sub_len_ = out_rate_ / 10;        // 0.1 s of output
+    if (sub_len_ < 1) sub_len_ = 1;
+    level_reset();
+}
+
+void ChannelChain::level_reset() {
+    sub_sumsq_ = 0;
+    sub_n_ = 0;
+    lvl_min_ = 0;
+    lvl_max_ = 0;
+    lvl_sum_ = 0;
+    lvl_blocks_ = 0;
+}
+
+bool ChannelChain::take_level(float &min_db, float &avg_db, float &max_db) {
+    if (lvl_blocks_ < 1) return false;
+    // Floor the argument so a digitally silent channel reports a finite level
+    // instead of -inf.
+    auto dbfs = [](double rms) {
+        if (rms < 1e-10) rms = 1e-10;
+        return (float)(20.0 * std::log10(rms));
+    };
+    min_db = dbfs(lvl_min_);
+    max_db = dbfs(lvl_max_);
+    avg_db = dbfs(lvl_sum_ / (double)lvl_blocks_);
+    level_reset();
+    return true;
 }
 
 void ChannelChain::put(std::vector<uint8_t> &out, float v) const {
@@ -103,6 +138,20 @@ void ChannelChain::process(const std::complex<float> *iq, size_t n, std::vector<
         for (size_t t = 0; t < L; t++)        // symmetric LPF: history order is irrelevant
             acc += h[t] * lp_[t];
         float I = acc.real(), Q = acc.imag();
+
+        // 2b) signal level, taken here so every mode measures the same thing
+        if (level_on_) {
+            sub_sumsq_ += (double)I * I + (double)Q * Q;
+            if (++sub_n_ >= sub_len_) {
+                float rms = (float)std::sqrt(sub_sumsq_ / (double)sub_n_);
+                if (lvl_blocks_ == 0 || rms < lvl_min_) lvl_min_ = rms;
+                if (rms > lvl_max_) lvl_max_ = rms;
+                lvl_sum_ += rms;
+                lvl_blocks_++;
+                sub_sumsq_ = 0;
+                sub_n_ = 0;
+            }
+        }
 
         if (mode_ == Mode::IQ) {              // ship complex baseband, no demod
             put(out, I);

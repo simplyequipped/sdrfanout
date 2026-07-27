@@ -47,7 +47,8 @@ struct Pool {
 }
 
 int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
-                 double buffer_sec, volatile bool *stop, int threads) {
+                 double buffer_sec, volatile bool *stop, int threads,
+                 double level_interval) {
     const int fs = (int)cap->rate();
     const double center = cap->center();
     const size_t nch = chans.size();
@@ -65,6 +66,8 @@ int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
         framers.emplace_back(c.fd, c.outrate, frame, buffer_sec,
                              sample_bytes, c.mode != Mode::IQ, c.format == Format::F32);
     }
+    if (level_interval > 0)
+        for (auto &ch : chains) ch.enable_level();
 
     int nthreads = threads;
     if (nthreads <= 0) {                             // auto: balance channels over cores
@@ -79,6 +82,7 @@ int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
     int rc = 0;
     std::vector<long> last_dropped(nch, 0);          // drop counts at last report
     double last_report = now();
+    double last_level = last_report;
 
     // Worker pool (only when fanning out). Each worker owns a contiguous channel
     // range and its own audio scratch.
@@ -143,6 +147,21 @@ int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
                 last_dropped[i] = d;
             }
             last_report = t;
+        }
+
+        // Periodic level report: one stderr line per channel. Unlike the drop
+        // report this is a measurement, so it prints every interval whether or
+        // not anything changed. Read here, with the workers parked, so taking
+        // and resetting a chain's counters can't race a worker.
+        if (level_interval > 0 && t - last_level >= level_interval) {
+            for (size_t i = 0; i < nch; i++) {
+                float mn, av, mx;
+                if (chains[i].take_level(mn, av, mx))
+                    std::fprintf(stderr,
+                                 "sdrfanout: ch %.0f level min %.1f avg %.1f max %.1f dBFS (%.0fs)\n",
+                                 chans[i].dial, mn, av, mx, t - last_level);
+            }
+            last_level = t;
         }
     }
 

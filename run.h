@@ -19,6 +19,8 @@ struct ChannelOut {
 // Runs until *stop, or until capture read() returns <0. Returns 0 on clean stop,
 // 1 on capture error. Each channel is framed at 0.1 s of its own output rate.
 // `threads` worker threads share the channels (<=0 = auto: one per channel, capped
-// at the core count; 1 = the inline single-thread path).
+// at the core count; 1 = the inline single-thread path). `level_interval` > 0 reports
+// each channel's signal level that often, in seconds.
 int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
-                 double buffer_sec, volatile bool *stop, int threads = 1);
+                 double buffer_sec, volatile bool *stop, int threads = 1,
+                 double level_interval = 0.0);

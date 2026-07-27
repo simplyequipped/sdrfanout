@@ -29,8 +29,19 @@ public:
 
     int out_rate() const { return out_rate_; }
 
+    // Signal level reporting, off unless enabled. Levels are measured on the
+    // post-decimate complex baseband, before any demod, so a channel reads the
+    // same in every mode.
+    void enable_level();
+
+    // Read and reset the levels accumulated since the last call, as dBFS
+    // (full scale = 1.0, so values are negative). False when no full sub-block
+    // has completed yet, in which case the outputs are untouched.
+    bool take_level(float& min_db, float& avg_db, float& max_db);
+
 private:
     void put(std::vector<uint8_t>& out, float v) const;   // one value, in `format_`
+    void level_reset();
 
     Mode mode_;
     Format format_;
@@ -55,4 +66,16 @@ private:
     int hdelay_;
     std::vector<float> i_hist_, q_hist_;
     size_t h_pos_;
+
+    // Signal levels. Power is summed over a short sub-block and reduced to one RMS
+    // value per sub-block, then min/max/mean are taken across those. Reducing per
+    // sub-block rather than per sample is what makes the minimum meaningful: single
+    // sample power swings to near zero often, so a per-sample minimum would just
+    // track those nulls instead of the quiet level.
+    bool level_on_;
+    int sub_len_, sub_n_;      // sub-block length in output samples, and samples so far
+    double sub_sumsq_;         // running sum of |acc|^2 within the sub-block
+    float lvl_min_, lvl_max_;  // extremes of sub-block RMS this interval
+    double lvl_sum_;           // sum of sub-block RMS, for the mean
+    long lvl_blocks_;          // sub-blocks completed this interval
 };

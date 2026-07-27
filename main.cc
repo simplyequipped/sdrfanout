@@ -36,6 +36,8 @@ static void usage() {
         "  -ppm <n>                frequency correction, default: 0\n"
         "  -antenna <name>         Soapy antenna, default: not set (device default)\n"
         "  -buffer <sec>           per-channel output buffer in seconds, default: 1\n"
+        "  -level [<sec>]          report per-channel signal level (min/avg/max dBFS) to\n"
+        "                          stderr every <sec>, default: 300, off when not used\n"
         "  -threads <n>            DSP worker threads, default: auto (one per channel, capped at cores)\n"
         "  -outrate <hz>           channel output sample rate in Hz, default: 12000\n"
         "  -mode <usb|lsb|iq>      default channel output mode: usb (iq = raw complex baseband)\n"
@@ -80,6 +82,7 @@ int main(int argc, char **argv) {
     CaptureConfig cfg;
     std::vector<ChSpec> chspec;
     double buffer_sec = 1.0; // per-channel output backlog cap
+    double level_interval = 0.0;   // seconds between level reports, 0 = no reporting
 
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
@@ -100,6 +103,14 @@ int main(int argc, char **argv) {
         else if (a == "-ppm") cfg.ppm = atof(val("-ppm").c_str());
         else if (a == "-antenna") cfg.antenna = val("-antenna");
         else if (a == "-buffer") buffer_sec = atof(val("-buffer").c_str());
+        else if (a == "-level") {
+            level_interval = 300.0;
+            if (i + 1 < argc) {              // the interval is optional, so only take a
+                char *end = 0;               // following argument when it is a number
+                double v = strtod(argv[i + 1], &end);
+                if (end != argv[i + 1] && *end == '\0' && v > 0) { level_interval = v; i++; }
+            }
+        }
         else if (a == "-threads") cfg.threads = atoi(val("-threads").c_str());
         else if (a == "-outrate") cfg.outrate = atoi(val("-outrate").c_str());
         else if (a == "-mode") cfg.mode = parse_mode(val("-mode"));
@@ -175,7 +186,7 @@ int main(int argc, char **argv) {
     std::signal(SIGTERM, on_signal);
     std::signal(SIGPIPE, SIG_IGN);
 
-    int rc = run_producer(cap, chans, buffer_sec, &g_stop, cfg.threads);
+    int rc = run_producer(cap, chans, buffer_sec, &g_stop, cfg.threads, level_interval);
 
     for (auto &c : chans)
         if (c.dropped) std::fprintf(stderr, "sdrfanout: ch %.0f dropped %ld frames\n", c.dial, c.dropped);

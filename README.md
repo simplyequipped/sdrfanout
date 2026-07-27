@@ -36,13 +36,16 @@ usage: sdrfanout -ch <dial_hz>:<path> [-ch ...] [options]
   -ppm <n>                frequency correction, default: 0
   -antenna <name>         Soapy antenna, default: not set (device default)
   -buffer <sec>           per-channel output buffer in seconds, default: 1
+  -level [<sec>]          report per-channel signal level (min/avg/max dBFS) to
+                          stderr every <sec>, default: 300, off when not used
   -threads <n>            DSP worker threads, default: auto (one per channel, capped at cores)
   -outrate <hz>           channel output sample rate in Hz, default: 12000
   -mode <usb|lsb|iq>      default channel output mode: usb (iq = raw complex baseband)
   -format <i16|f32>       output sample type, default: i16
   -ch <dial>[:<path>[:<mode>[:<outrate>]]]
                           channel dial freq (Hz) + output FIFO, with optional per-
-                          channel mode and outrate (empty field = use the global)
+                          channel mode and outrate (empty field = use the global).
+                          path defaults to /tmp/sdrfanout/<dial>.fifo, '-' = stdout
 ```
 
 Each `-ch` defines one channel: a dial frequency and a FIFO output path. The output path
@@ -79,6 +82,36 @@ sample rate the channels need, out-of-band signals can alias onto the channels.
 sdrfanout warns when that happens, raise `-rate` for a clean window if the extra
 sample rate is affordable. A device that reports no bandwidth control keeps its
 default.
+
+## Signal Level
+
+`-level` reports what each channel is hearing, one line per channel per interval:
+
+```
+sdrfanout: ch 7074000 level min -78.3 avg -71.5 max -12.1 dBFS (300s)
+```
+
+Levels are measured on the channel's baseband ahead of the demod, so a channel reads
+the same in every mode. Power is averaged over 0.1 second blocks and reduced to one
+value per block, then the interval reports the smallest, mean and largest of those.
+Averaging first is what makes the minimum useful: instantaneous power swings to near
+zero constantly, so a per-sample minimum would track those nulls rather than the
+quiet level between signals. On a channel that goes quiet between transmissions the
+minimum approximates the background level, the mean follows overall occupancy, and
+the maximum shows the strongest signal in the interval.
+
+Pick an interval that covers the quiet gaps in what you are receiving. A signal that
+transmits for two minutes at a time needs an interval long enough to contain one of
+its gaps, or the minimum only ever sees the transmission.
+
+### Calibration
+
+Levels are dBFS, relative to the converter's full scale, so they are negative and
+comparable only within one receiver at one gain setting. Converting them to absolute
+power requires calibration: feed the receiver a source of known power, take the
+difference between the reported level and that known power, and apply it as an offset.
+The offset holds only while the gain does. Automatic gain control moves it
+continuously, so absolute levels need a fixed gain.
 
 ## Stream Format
 

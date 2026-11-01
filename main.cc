@@ -77,7 +77,6 @@ int main(int argc, char **argv) {
     // If parent exits for any reason, even a hard kill that skips its
     // teardown, the kernel sends SIGTERM
     prctl(PR_SET_PDEATHSIG, SIGTERM);
-    if (getppid() == 1) return 0;
 #endif
     CaptureConfig cfg;
     std::vector<ChSpec> chspec;

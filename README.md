@@ -36,7 +36,7 @@ usage: sdrfanout -ch <dial_hz>:<path> [-ch ...] [options]
   -ppm <n>                frequency correction, default: 0
   -antenna <name>         Soapy antenna, default: not set (device default)
   -buffer <sec>           per-channel output buffer in seconds, default: 1
-  -fifo <bytes>           kernel FIFO buffer size in bytes, default: kernel default (65536)
+  -fifo <bytes>           kernel FIFO buffer size in bytes, default: kernel default
   -level [<sec>]          report per-channel signal level (min/avg/max dBFS) to
                           stderr every <sec>, default: 300, off when not used
   -threads <n>            DSP worker threads, default: auto (one per channel, capped at cores)
@@ -54,7 +54,7 @@ Each `-ch` defines one channel: a dial frequency and a FIFO output path. The out
 is optional. With just a frequency, sdrfanout creates the FIFO at `/tmp/sdrfanout/<dial>.fifo`
 (deterministic, so a consumer can find it without coordination) and prints the resolved
 path to stderr. Give an explicit `:<path>` to place it elsewhere, or `:-` to write the
-stream to stdout. The trailing `:<mode>`,`:<outrate>`, and `:<raw>` fields override the global
+stream to stdout. The trailing `:<mode>`, `:<outrate>`, and `:raw` fields override the global
 settings for that channel. Leave an optional field empty to keep the global setting
 (ex. `-ch 7074000::iq` sets IQ mode with the default outrate). Setting `:raw` writes that
 channel's audio without sdrfanout headers, and `-raw` does the same globally. See the

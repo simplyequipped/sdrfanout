@@ -50,7 +50,7 @@ static void usage() {
         "  -ppm <n>                frequency correction, default: 0\n"
         "  -antenna <name>         Soapy antenna, default: not set (device default)\n"
         "  -buffer <sec>           per-channel output buffer in seconds, default: 1\n"
-        "  -fifo <bytes>           kernel FIFO buffer size in bytes, default: kernel default (65536)\n"
+        "  -fifo <bytes>           kernel FIFO buffer size in bytes, default: kernel default\n"
         "  -level [<sec>]          report per-channel signal level (min/avg/max dBFS) to\n"
         "                          stderr every <sec>, default: 300, off when not used\n"
         "  -threads <n>            DSP worker threads, default: auto (one per channel, capped at cores)\n"

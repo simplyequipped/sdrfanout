@@ -13,6 +13,7 @@ struct ChannelOut {
     Mode mode = Mode::USB;         // channel output mode
     Format format = Format::I16;   // output sample element type
     int outrate = 12000;           // channel output sample rate (Hz)
+    bool raw = false;              // audio without sdrf_hdr framing
     long dropped = 0;              // filled in on return
 };
 

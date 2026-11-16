@@ -1,8 +1,8 @@
 // framer: accumulate a channel's output bytes, emit whole frames, and write to fd.
-// In an audio mode (USB/LSB) a frame is [sdrf_hdr][samples]; in IQ mode it is raw
-// headerless interleaved samples. Holds up to `buffer_sec` of frames in a userspace
-// queue, drained to the fd opportunistically (non-blocking). When the queue is full
-// it drops the OLDEST frame (drop-not-stall) so a slow/stalled consumer can't
+// In an audio mode (USB/LSB) a frame is [sdrf_hdr][samples]; in IQ mode or a raw
+// audio channel it is headerless samples. Holds up to `buffer_sec` of frames in a
+// userspace queue, drained to the fd opportunistically (non-blocking). When the queue
+// is full it drops the OLDEST frame (drop-not-stall) so a slow/stalled consumer can't
 // back-pressure the shared SDR read and overflow IQ for every channel.
 #pragma once
 #include <cstddef>
@@ -15,7 +15,7 @@ public:
     // outrate       : channel output sample rate (header field and backlog cap)
     // frame_samples : output time-steps per frame
     // sample_bytes  : bytes per time-step (element size * 1 for real, * 2 for IQ)
-    // framed        : prepend an sdrf_hdr per frame (audio), else write raw bytes (IQ)
+    // framed        : prepend an sdrf_hdr per frame (audio), else write raw bytes (IQ, raw audio)
     // f32           : set SDRF_FLAG_F32 in the header
     Framer(int fd, int outrate, int frame_samples, double buffer_sec,
            int sample_bytes, bool framed, bool f32);
@@ -32,6 +32,7 @@ private:
     size_t frame_bytes_;                         // frame_ * sample_bytes_
     size_t max_frames_;                          // queue cap = buffer_sec worth
     double t_newest_;
+    size_t front_written_;                       // bytes of queue_.front() already written
     long dropped_;
     std::vector<uint8_t> buf_;                   // output byte accumulator
     std::deque<std::vector<uint8_t>> queue_;     // pending frames

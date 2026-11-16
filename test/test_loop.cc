@@ -58,8 +58,8 @@ int main() {
 
     char p0[] = "/tmp/sdrfanout_ch0.XXXXXX", p1[] = "/tmp/sdrfanout_ch1.XXXXXX";
     std::vector<ChannelOut> chans = {
-        {dials[0], mkstemp(p0), Mode::USB, Format::I16, 12000, 0},
-        {dials[1], mkstemp(p1), Mode::USB, Format::I16, 12000, 0},
+        {dials[0], mkstemp(p0), Mode::USB, Format::I16, 12000, false, 0},
+        {dials[1], mkstemp(p1), Mode::USB, Format::I16, 12000, false, 0},
     };
     if (chans[0].fd < 0 || chans[1].fd < 0) { perror("mkstemp"); return 2; }
 

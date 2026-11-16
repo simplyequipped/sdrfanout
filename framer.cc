@@ -8,7 +8,7 @@
 Framer::Framer(int fd, int outrate, int frame_samples, double buffer_sec,
                int sample_bytes, bool framed, bool f32)
     : fd_(fd), outrate_(outrate), frame_(frame_samples), sample_bytes_(sample_bytes),
-      framed_(framed), f32_(f32), t_newest_(0), dropped_(0) {
+      framed_(framed), f32_(f32), t_newest_(0), front_written_(0), dropped_(0) {
     frame_bytes_ = (size_t)frame_ * sample_bytes_;
     double fps = (double)outrate_ / frame_;              // frames per second
     max_frames_ = (size_t)(buffer_sec * fps + 0.5);
@@ -48,14 +48,21 @@ void Framer::emit() {
 }
 
 void Framer::drain() {
-    // Flush as many queued frames as the fd will take without blocking. A write of
-    // <= PIPE_BUF bytes is atomic on a pipe, so it's all-or-EAGAIN (no partials).
+    // Flush as many queued frames as the fd will take without blocking. A frame
+    // larger than PIPE_BUF can be written partially, so resume where it stopped.
     while (!queue_.empty()) {
         const std::vector<uint8_t> &f = queue_.front();
-        ssize_t w = write(fd_, f.data(), f.size());
-        if (w == (ssize_t)f.size()) { queue_.pop_front(); continue; }
-        break;  // EAGAIN (or transient error): keep it queued, try next time
+        ssize_t w = write(fd_, f.data() + front_written_, f.size() - front_written_);
+        if (w <= 0) break;  // EAGAIN (or transient error): keep it queued, try next time
+        front_written_ += (size_t)w;
+        if (front_written_ < f.size()) break;
+        queue_.pop_front();
+        front_written_ = 0;
     }
-    // Cap the backlog: drop the oldest frames beyond buffer_sec worth.
-    while (queue_.size() > max_frames_) { queue_.pop_front(); dropped_++; }
+    // Cap the backlog: drop the oldest frames beyond buffer_sec worth. A partly
+    // written frame must finish or the stream loses alignment, so drop the next one.
+    while (queue_.size() > max_frames_) {
+        queue_.erase(front_written_ ? queue_.begin() + 1 : queue_.begin());
+        dropped_++;
+    }
 }

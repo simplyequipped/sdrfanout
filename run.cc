@@ -63,8 +63,9 @@ int run_producer(Capture *cap, std::vector<ChannelOut> &chans,
         int sample_bytes = elem * ((c.mode == Mode::IQ) ? 2 : 1);
         int frame = c.outrate / 10;                    // 0.1 s of this channel's output
         if (frame < 1) frame = 1;
+        bool framed = c.mode != Mode::IQ && !c.raw;
         framers.emplace_back(c.fd, c.outrate, frame, buffer_sec,
-                             sample_bytes, c.mode != Mode::IQ, c.format == Format::F32);
+                             sample_bytes, framed, c.format == Format::F32);
     }
     if (level_interval > 0)
         for (auto &ch : chains) ch.enable_level();

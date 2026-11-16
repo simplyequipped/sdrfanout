@@ -4,7 +4,7 @@
 // Validates, for every combination of channel count (1,2,3), mode (usb/lsb/iq),
 // format (i16/f32), and output rate (12/48/96/192 k) over a range of input rates:
 //   - stream structure: framed sdrf_hdr for audio (magic/version/rate/flags/nsamples/
-//     timestamps) vs raw headerless for iq, correct sample size and count
+//     timestamps) vs raw headerless for iq and raw audio, correct sample size and count
 //   - data accuracy: usb passes the upper tone and rejects the lower, lsb the reverse,
 //     iq preserves both sidebands at the right baseband frequencies
 #include "dsp.h"
@@ -121,8 +121,8 @@ static void check_channel(const std::string &tag, int c, double delta, long fs, 
     }
 }
 
-// Framed/raw stream structure for one (mode, format, outrate).
-static void check_stream(Mode m, Format fmt, int R) {
+// Framed/raw stream structure for one (mode, format, outrate, raw).
+static void check_stream(Mode m, Format fmt, int R, bool raw) {
     checks++;
     std::vector<int> outr = {R};
     long fs = pick_fs(outr, 0, 1);
@@ -131,10 +131,10 @@ static void check_stream(Mode m, Format fmt, int R) {
     std::vector<uint8_t> bytes; ch.process(iq.data(), iq.size(), bytes);
 
     int es = (fmt == Format::F32) ? 4 : 2, sb = es * (m == Mode::IQ ? 2 : 1);
-    int frame = R / 10; bool framed = (m != Mode::IQ), f32 = (fmt == Format::F32);
+    int frame = R / 10; bool framed = (m != Mode::IQ && !raw), f32 = (fmt == Format::F32);
     size_t fb = (size_t)frame * sb, whole = (bytes.size() / fb) * fb;
     std::string label = std::string(m == Mode::USB ? "usb" : m == Mode::LSB ? "lsb" : "iq") +
-                        "/" + (f32 ? "f32" : "i16") + "/" + std::to_string(R);
+                        "/" + (f32 ? "f32" : "i16") + "/" + std::to_string(R) + (raw ? "/raw" : "");
 
     char path[] = "/tmp/sftest_stream.XXXXXX";
     int fd = mkstemp(path);
@@ -169,9 +169,9 @@ static void check_stream(Mode m, Format fmt, int R) {
 int main() {
     int rates[] = {12000, 48000, 96000, 192000};
 
-    std::printf("== stream structure: every mode x format x outrate ==\n");
-    for (int mi = 0; mi < 3; mi++) for (int fi = 0; fi < 2; fi++) for (int R : rates)
-        check_stream((Mode)mi, fi ? Format::F32 : Format::I16, R);
+    std::printf("== stream structure: every mode x format x outrate x raw ==\n");
+    for (int mi = 0; mi < 3; mi++) for (int fi = 0; fi < 2; fi++) for (int R : rates) for (bool raw : {false, true})
+        check_stream((Mode)mi, fi ? Format::F32 : Format::I16, R, raw);
 
     std::printf("== data accuracy + structure: 1/2/3 channels, all mode combos, mixed rates ==\n");
     std::vector<std::vector<std::vector<int>>> oc(4);

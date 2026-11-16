@@ -10,6 +10,7 @@
 #include <utility>
 #include <numeric>
 #include <csignal>
+#include <cerrno>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -21,6 +22,19 @@
 
 static volatile bool g_stop = false;
 static void on_signal(int) { g_stop = true; }
+
+// The kernel rounds the size up to a power-of-two number of pages and keeps it
+// on the pipe itself, so it outlives this process while any other fd stays open.
+static void set_fifo_size(int fd, double dial, long fifo_bytes) {
+    if (fcntl(fd, F_SETPIPE_SZ, (int)fifo_bytes) < 0) {
+        int error = errno;
+        long kept_bytes = fcntl(fd, F_GETPIPE_SZ);
+        std::fprintf(stderr, "sdrfanout: ch %.0f fifo %ld bytes failed: %s, keeping %ld bytes\n",
+                     dial, fifo_bytes, std::strerror(error), kept_bytes);
+        return;
+    }
+    std::fprintf(stderr, "sdrfanout: ch %.0f fifo %ld bytes\n", dial, (long)fcntl(fd, F_GETPIPE_SZ));
+}
 
 static void usage() {
     std::fprintf(stderr,
@@ -36,15 +50,17 @@ static void usage() {
         "  -ppm <n>                frequency correction, default: 0\n"
         "  -antenna <name>         Soapy antenna, default: not set (device default)\n"
         "  -buffer <sec>           per-channel output buffer in seconds, default: 1\n"
+        "  -fifo <bytes>           kernel FIFO buffer size in bytes, default: kernel default (65536)\n"
         "  -level [<sec>]          report per-channel signal level (min/avg/max dBFS) to\n"
         "                          stderr every <sec>, default: 300, off when not used\n"
         "  -threads <n>            DSP worker threads, default: auto (one per channel, capped at cores)\n"
         "  -outrate <hz>           channel output sample rate in Hz, default: 12000\n"
         "  -mode <usb|lsb|iq>      default channel output mode: usb (iq = raw complex baseband)\n"
         "  -format <i16|f32>       output sample type, default: i16\n"
-        "  -ch <dial>[:<path>[:<mode>[:<outrate>]]]\n"
-        "                          channel dial freq (Hz) + output FIFO, with optional per-\n"
-        "                          channel mode and outrate (empty field = use the global).\n"
+        "  -raw                    audio output without sdrf headers, default: off\n"
+        "  -ch <dial>[:<path>[:<mode>[:<outrate>[:raw]]]]\n"
+        "                          channel dial freq (Hz) with optional FIFO path, mode, outrate,\n"
+        "                          and raw (no header) settings.\n"
         "                          path defaults to " SDRFANOUT_TMPDIR "/<dial>.fifo, '-' = stdout\n");
     std::exit(2);
 }
@@ -64,12 +80,13 @@ static Format parse_format(const std::string &v) {
     std::exit(2);
 }
 
-// One -ch spec: dial[:path[:mode[:outrate]]]. mode/outrate < 0 means "use the global".
+// One -ch spec: dial[:path[:mode[:outrate[:raw]]]]. mode/outrate < 0 means "use the global".
 struct ChSpec {
     double dial;
     std::string path;
     int mode = -1;
     int outrate = -1;
+    bool raw = false;
 };
 
 int main(int argc, char **argv) {
@@ -81,7 +98,9 @@ int main(int argc, char **argv) {
     CaptureConfig cfg;
     std::vector<ChSpec> chspec;
     double buffer_sec = 1.0; // per-channel output backlog cap
+    long fifo_bytes = 0;     // kernel FIFO buffer size, 0 = leave the kernel default
     double level_interval = 0.0;   // seconds between level reports, 0 = no reporting
+    bool raw = false;
 
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
@@ -102,6 +121,11 @@ int main(int argc, char **argv) {
         else if (a == "-ppm") cfg.ppm = atof(val("-ppm").c_str());
         else if (a == "-antenna") cfg.antenna = val("-antenna");
         else if (a == "-buffer") buffer_sec = atof(val("-buffer").c_str());
+        else if (a == "-fifo") {
+            std::string v = val("-fifo");
+            fifo_bytes = atol(v.c_str());
+            if (fifo_bytes <= 0) { std::fprintf(stderr, "invalid -fifo '%s' (bytes)\n", v.c_str()); std::exit(2); }
+        }
         else if (a == "-level") {
             level_interval = 300.0;
             if (i + 1 < argc) {              // the interval is optional, so only take a
@@ -114,9 +138,10 @@ int main(int argc, char **argv) {
         else if (a == "-outrate") cfg.outrate = atoi(val("-outrate").c_str());
         else if (a == "-mode") cfg.mode = parse_mode(val("-mode"));
         else if (a == "-format") cfg.format = parse_format(val("-format"));
+        else if (a == "-raw") raw = true;
         else if (a == "-ch") {
             std::string v = val("-ch");
-            // dial[:path[:mode[:outrate]]] split on ':'. An empty field uses the global.
+            // dial[:path[:mode[:outrate[:raw]]]] split on ':'. An empty field uses the global.
             std::vector<std::string> f;
             for (size_t s = 0;;) {
                 size_t c = v.find(':', s);
@@ -129,6 +154,10 @@ int main(int argc, char **argv) {
             if (f.size() > 1) cs.path = f[1];
             if (f.size() > 2 && !f[2].empty()) cs.mode = (int)parse_mode(f[2]);
             if (f.size() > 3 && !f[3].empty()) cs.outrate = atoi(f[3].c_str());
+            if (f.size() > 4 && !f[4].empty()) {
+                if (f[4] != "raw") { std::fprintf(stderr, "invalid -ch field '%s' (expected raw)\n", f[4].c_str()); std::exit(2); }
+                cs.raw = true;
+            }
             chspec.push_back(cs);
         }
         else if (a == "-h" || a == "--help") usage();
@@ -141,6 +170,7 @@ int main(int argc, char **argv) {
     for (auto &cs : chspec) {
         if (cs.mode < 0) cs.mode = (int)cfg.mode;
         if (cs.outrate < 0) cs.outrate = cfg.outrate;
+        if (raw) cs.raw = true;
         cfg.dials.push_back(cs.dial);
         rate_unit = std::lcm(rate_unit, cs.outrate);
     }
@@ -160,6 +190,10 @@ int main(int argc, char **argv) {
         if (cs.path == "-") {
             fd = STDOUT_FILENO;
             fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+            if (fifo_bytes > 0) {
+                struct stat st;
+                if (fstat(fd, &st) == 0 && S_ISFIFO(st.st_mode)) set_fifo_size(fd, cs.dial, fifo_bytes);
+            }
         } else {
             std::string path = cs.path;
             if (path.empty()) {                          // auto: deterministic per-dial FIFO
@@ -177,8 +211,14 @@ int main(int argc, char **argv) {
                 std::fprintf(stderr, "sdrfanout: %s exists but is not a FIFO\n", path.c_str());
                 delete cap; return 1;
             }
+            if (fifo_bytes > 0) {
+                // Stale output from a previous run would make the shrink fail with EBUSY.
+                char drain[4096];
+                while (read(fd, drain, sizeof drain) > 0) {}
+                set_fifo_size(fd, cs.dial, fifo_bytes);
+            }
         }
-        chans.push_back({cs.dial, fd, (Mode)cs.mode, cfg.format, cs.outrate, 0});
+        chans.push_back({cs.dial, fd, (Mode)cs.mode, cfg.format, cs.outrate, cs.raw, 0});
     }
 
     std::signal(SIGINT, on_signal);

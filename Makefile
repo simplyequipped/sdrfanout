@@ -27,6 +27,10 @@ test/test_level: test/test_level.cc dsp.cc
 test/test_input_output_combos: test/test_input_output_combos.cc dsp.cc framer.cc
 	$(CXX) $(CXXFLAGS) -I. test/test_input_output_combos.cc dsp.cc framer.cc -o $@ -lm
 
+# Frames larger than the pipe's free space are written in pieces without loss.
+test/test_partial_write: test/test_partial_write.cc framer.cc
+	$(CXX) $(CXXFLAGS) -I. test/test_partial_write.cc framer.cc -o $@ -lm
+
 # Full producer loop via the synthetic capture.
 test/test_loop: test/test_loop.cc run.cc dsp.cc framer.cc synth.cc util.cc
 	$(CXX) $(CXXFLAGS) -I. test/test_loop.cc run.cc dsp.cc framer.cc synth.cc util.cc -o $@ -lm
@@ -36,7 +40,7 @@ test/test_threads: test/test_threads.cc run.cc dsp.cc framer.cc synth.cc util.cc
 	$(CXX) $(CXXFLAGS) -I. test/test_threads.cc run.cc dsp.cc framer.cc synth.cc util.cc -o $@ -lm
 
 test: test/test_util test/test_dsp test/test_stream test/test_level \
-      test/test_input_output_combos test/test_loop test/test_threads
+      test/test_input_output_combos test/test_partial_write test/test_loop test/test_threads
 	./test/test_util
 	@echo
 	./test/test_dsp
@@ -47,12 +51,14 @@ test: test/test_util test/test_dsp test/test_stream test/test_level \
 	@echo
 	./test/test_input_output_combos
 	@echo
+	./test/test_partial_write
+	@echo
 	./test/test_loop
 	@echo
 	./test/test_threads
 
 clean:
 	rm -f sdrfanout test/test_util test/test_dsp test/test_stream test/test_level \
-	      test/test_input_output_combos test/test_loop test/test_threads
+	      test/test_input_output_combos test/test_partial_write test/test_loop test/test_threads
 
 .PHONY: test clean

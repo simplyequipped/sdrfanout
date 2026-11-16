@@ -36,26 +36,36 @@ usage: sdrfanout -ch <dial_hz>:<path> [-ch ...] [options]
   -ppm <n>                frequency correction, default: 0
   -antenna <name>         Soapy antenna, default: not set (device default)
   -buffer <sec>           per-channel output buffer in seconds, default: 1
+  -fifo <bytes>           kernel FIFO buffer size in bytes, default: kernel default (65536)
   -level [<sec>]          report per-channel signal level (min/avg/max dBFS) to
                           stderr every <sec>, default: 300, off when not used
   -threads <n>            DSP worker threads, default: auto (one per channel, capped at cores)
   -outrate <hz>           channel output sample rate in Hz, default: 12000
   -mode <usb|lsb|iq>      default channel output mode: usb (iq = raw complex baseband)
   -format <i16|f32>       output sample type, default: i16
-  -ch <dial>[:<path>[:<mode>[:<outrate>]]]
-                          channel dial freq (Hz) + output FIFO, with optional per-
-                          channel mode and outrate (empty field = use the global).
+  -raw                    audio output without sdrf headers, default: off
+  -ch <dial>[:<path>[:<mode>[:<outrate>[:raw]]]]
+                          channel dial freq (Hz) with optional FIFO path, mode, outrate,
+                          and raw (no header) settings.
                           path defaults to /tmp/sdrfanout/<dial>.fifo, '-' = stdout
 ```
 
 Each `-ch` defines one channel: a dial frequency and a FIFO output path. The output path
-is optional. With just a dial, sdrfanout creates the FIFO at `/tmp/sdrfanout/<dial>.fifo`
+is optional. With just a frequency, sdrfanout creates the FIFO at `/tmp/sdrfanout/<dial>.fifo`
 (deterministic, so a consumer can find it without coordination) and prints the resolved
 path to stderr. Give an explicit `:<path>` to place it elsewhere, or `:-` to write the
-stream to stdout. The trailing `:<mode>` and `:<outrate>` fields override the global
-`-mode` and `-outrate` for that channel; leave a field empty to keep the global (for
-example `-ch 7074000::iq` sets IQ output with the default outrate). Two co-located
-decoders off one radio:
+stream to stdout. The trailing `:<mode>`,`:<outrate>`, and `:<raw>` fields override the global
+settings for that channel. Leave an optional field empty to keep the global setting
+(ex. `-ch 7074000::iq` sets IQ mode with the default outrate). Setting `:raw` writes that
+channel's audio without sdrfanout headers, and `-raw` does the same globally. See the
+Stream Format section for more details.
+
+`-buffer` sizes sdrfanout's own output queue. `-fifo` sets the kernel buffer of each
+channel FIFO, and discards whatever the FIFO already holds at startup when it is given.
+A small value such as 4096 limits the latency a sound server pipe source builds up while
+nothing is recording from it.
+
+Two co-located decoders off one radio:
 
 ```
 sdrfanout -driver hackrf -ch 7038600 -ch 7074000
@@ -63,11 +73,11 @@ ft8mon  -card stream /tmp/sdrfanout/7074000.fifo
 wsprmon -card stream /tmp/sdrfanout/7038600.fifo
 ```
 
-`-mode` picks what each channel emits. `usb` and `lsb` demodulate to real
-single-sideband audio. `iq` skips the demod and streams the complex baseband. `-format` picks the sample element type, `i16` (scaled int16) or
-`f32` (raw unscaled float32, approx. -1 to 1), and applies to all channels. For the audio modes
-keep `-outrate` at 48k or lower, opposite-sideband rejection weakens at higher output
-rates.
+`-mode` picks what each channel emits. `usb` and `lsb` demodulate to real single-sideband audio.
+`iq` skips the demod and streams the complex baseband. `-format` picks the sample element type,
+`i16` (scaled int16) or `f32` (raw unscaled float32, approx. -1 to 1), and applies to all channels.
+For the audio modes keep `-outrate` at 48k or lower, opposite-sideband rejection weakens at higher
+output rates.
 
 The SDR sample rate is chosen to be an integer multiple of the channel output rate, so each
 channel decimates by a whole number. `-rate auto` picks the smallest multiple that
@@ -115,8 +125,8 @@ continuously, so absolute levels need a fixed gain.
 
 ## Stream Format
 
-All modes are little-endian. The audio modes (`usb`, `lsb`) frame their output; `iq`
-mode does not.
+All modes are little-endian. The audio modes (`usb`, `lsb`) frame their output
+unless raw is set. `iq` mode is never framed.
 
 In an audio mode each channel is a continuous sequence of `[sdrf_hdr][nsamples x
 sample]`. The sample is `int16` by default, or `float32` when the header's
@@ -140,6 +150,9 @@ header (`version==1`, `rate_hz` and `nsamples` reasonable) before trusting it.
 In `iq` mode there is no header: the channel is a raw stream of interleaved I,Q
 samples (`int16` or `float32` per `-format`) at `-outrate`.
 
+A raw audio channel (`-raw` or `:raw`) has no header: the channel is a raw stream
+of `int16` or `float32` samples at the channel's outrate.
+
 Minimal consumer (audio):
 
 ```c
@@ -162,6 +175,40 @@ int main(void) {
     return 0;
 }
 ```
+
+## Audio Device Input
+
+A raw channel can feed a sound server (PulseAudio or PipeWire) as an input device,
+for an application such as JS8Call:
+
+```
+sdrfanout -driver <driver> -buffer 0.5 -fifo 8192 -ch 7078000::usb:24000:raw
+pactl load-module module-pipe-source source_name=sdrfanout_7078000 \
+  file=/tmp/sdrfanout/7078000.fifo format=s16le rate=24000 channels=1
+```
+
+Then select `sdrfanout_7078000` as the audio input device in the application.
+
+The channel must be raw (`:raw` or `-raw`). The sound server reads plain samples and
+cannot parse sdrf headers. The pactl `format` and `rate` must match the channel's
+`-format` and outrate. `i16` is `s16le` and `f32` is `float32le`. The sound server
+should resample to whatever rate the application asks for (JS8Call asks for 48000),
+so the channel rate is chosen for the channel, not the application.
+
+Accumulated latency comes from the size of sdrfanout's output buffer and FIFO, as well
+as the size of the sound server's buffer. `-fifo` and `-buffer` limit how much audio
+waits in sdrfanout's output buffer and FIFO before the application starts, which minimizes
+the latency the application sees. Audio latency shows up in JS8Call as signal time drift.
+With the settings in the example above, latency should be ~1 second (PipeWire 1.0.5).
+PipeWire 1.2.0 and later limit this latency internally, but these settings allow for the use
+of sdrfanout on older systems. `-fifo` must hold more than one write of output or audio
+is dropped. Safe minimum sizes: 4096 at 12000 Hz, 8192 at 24000 Hz, 16384 at 48000 Hz
+(i16 mono).
+
+If the FIFO file is deleted and recreated, unload and reload the module since the sound
+server holds the old FIFO open. Latency is constant for a recording session, so an
+application that syncs time to received signals (JS8Call time drift) should only need to
+correct it once.
 
 ## Acknowledgements
 

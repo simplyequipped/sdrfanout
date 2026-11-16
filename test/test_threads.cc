@@ -43,7 +43,7 @@ run_with(int nthreads, const std::vector<double> &dials, double center,
         std::vector<char> buf(tmpl.begin(), tmpl.end());
         buf.push_back('\0');
         int fd = mkstemp(buf.data());
-        chans.push_back({dials[i], fd, Mode::USB, Format::I16, 12000, 0});
+        chans.push_back({dials[i], fd, Mode::USB, Format::I16, 12000, false, 0});
         paths.emplace_back(buf.data());
     }
 
